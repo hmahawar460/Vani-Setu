@@ -11,6 +11,48 @@ export function setPreferredVoice(voice: SpeechSynthesisVoice | null): void {
   userSelectedVoice = voice;
 }
 
+// ── Client-side Hinglish → Devanagari cleanup (before TTS) ──────────────────
+// Ensures Roman Hindi words are never passed to hi-IN voice (mispronounced).
+// Only maps words confirmed to slip through from autocorrect output.
+const SPEAK_MAP: Record<string, string> = {
+  // Common words that sometimes leak through
+  school: 'स्कूल', barish: 'बारिश', baarish: 'बारिश',
+  pani: 'पानी', paani: 'पानी', khana: 'खाना', khaana: 'खाना',
+  nahi: 'नहीं', nahin: 'नहीं', haan: 'हाँ',
+  mai: 'मैं', mujhe: 'मुझे', mera: 'मेरा', meri: 'मेरी',
+  hai: 'है', hain: 'हैं', tha: 'था', thi: 'थी',
+  aaj: 'आज', kal: 'कल', abhi: 'अभी',
+  bahut: 'बहुत', sirf: 'सिर्फ', bas: 'बस',
+  kiyuki: 'क्योंकि', kyunki: 'क्योंकि', isliye: 'इसलिए',
+  lekin: 'लेकिन', aur: 'और', ya: 'या',
+  gaya: 'गया', gayi: 'गई', gae: 'गए',
+  dard: 'दर्द', dawai: 'दवाई', madad: 'मदद',
+  thanda: 'ठंडा', garam: 'गरम', thand: 'ठंड',
+  bhookh: 'भूख', neend: 'नींद', thaka: 'थका',
+  doctor: 'डॉक्टर', bathroom: 'बाथरूम',
+  kha: 'खा', pi: 'पी', so: 'सो', ja: 'जा',
+  roti: 'रोटी', chawal: 'चावल', doodh: 'दूध',
+  please: 'कृपया', help: 'मदद', water: 'पानी', food: 'खाना',
+};
+
+const SPEAK_KEYS = Object.keys(SPEAK_MAP).sort((a, b) => b.length - a.length);
+const SPEAK_RE = new RegExp(
+  `(?<![a-zA-Z\u0900-\u097F])(${SPEAK_KEYS.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})(?![a-zA-Z\u0900-\u097F])`,
+  'gi'
+);
+
+/**
+ * Convert any remaining Hinglish/Roman words to Devanagari before TTS.
+ * Ensures hi-IN voice always receives pure Hindi text.
+ */
+function prepareForSpeech(text: string): string {
+  if (!text) return text;
+  // Only process if Roman chars exist (fast check)
+  if (!/[a-zA-Z]/.test(text)) return text;
+  SPEAK_RE.lastIndex = 0;
+  return text.replace(SPEAK_RE, (match) => SPEAK_MAP[match.toLowerCase()] ?? match);
+}
+
 function getBestHindiVoice(): SpeechSynthesisVoice | undefined {
   if (userSelectedVoice) return userSelectedVoice;
   const voices = cachedVoices.length > 0 ? cachedVoices : window.speechSynthesis.getVoices();
@@ -34,8 +76,9 @@ function delay(ms: number): Promise<void> {
 }
 
 export function speak(text: string, rate = 0.85): Promise<void> {
-  // Directly pass the text to speakRaw so Hinglish words are read
-  return speakRaw(text, rate);
+  // Clean any remaining Roman/Hinglish words before sending to hi-IN TTS voice
+  const cleaned = prepareForSpeech(text);
+  return speakRaw(cleaned, rate);
 }
 
 function speakRaw(text: string, rate = 0.85): Promise<void> {
