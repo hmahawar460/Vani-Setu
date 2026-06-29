@@ -12,7 +12,23 @@ import {
   normalizeCorrections,
 } from './db.js';
 import { applyPhoneticRules } from './hindiPhonetic.js';
-import { getTestQuestionById, getTestQuestions } from './testDataset.js';
+import { transliterateHinglish, hasHinglish, getHinglishHintsForLLM } from './hinglishTranslit.js';
+import {
+  getTestQuestionById,
+  getTestQuestions,
+  getLetterTestById,
+  getLetterTests,
+  getWordTestById,
+  getWordTests,
+  getEnglishLetterTests,
+  getHindiVarnmalaTests,
+  getSentenceTests,
+  getSentenceTestById,
+  getParagraphTests,
+  getParagraphTestById,
+} from './testDataset.js';
+import { applyPronunciationProfile, getPronunciationHintsForLLM, normalizePronunciationProfile } from './pronunciationMatch.js';
+import { alignWithContext, scoreWordAlignment } from './wordAlign.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -48,16 +64,13 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
     fd.append('model', 'whisper-large-v3');
     fd.append('response_format', 'json');
     fd.append('language', 'hi');
-    // Whisper prompt: common Hindi sentences from daily life of a disability user.
-    // This biases Whisper's decoder toward real Hindi vocabulary.
+    // Whisper prompt: bias decoder toward real Hindi vocabulary.
+    // Includes commonly mis-transcribed words to anchor Whisper's output.
     fd.append('prompt',
-      'मैं स्कूल जाना चाहता था। मुझे पानी चाहिए। मुझे भूख लगी है। ' +
-      'मुझे दर्द हो रहा है। बारिश हो गई। मैं थका हुआ हूँ। ' +
-      'मेरे कपड़े गीले हो गए। मुझे ठंड लग रही है। ' +
-      'मैं बाथरूम जाना चाहता हूँ। मुझे दवाई चाहिए। ' +
-      'कृपया मेरी मदद करें। मैं ठीक नहीं हूँ। ' +
-      'मुझे रोटी और चावल चाहिए। मेरे पापा मुझे लेने आए।',
+      'स्कूल बारिश क्योंकि कपड़े गीले बाथरूम दवाई भूख पानी दर्द थका ठंड गर्मी ' +
+      'खुश डर सिर पेट रोटी चावल पापा। मैं स्कूल नहीं जा पाया। मुझे पानी चाहिए।'
     );
+    fd.append('temperature', '0');
 
     const r = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
       method: 'POST',
@@ -79,11 +92,12 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // LLM correction — context-aware, paragraph-level, with DB word lookup
 // ─────────────────────────────────────────────────────────────────────────────
-async function runLLMCorrection(rawText, preProcessed, corrections = []) {
-  // Pull known corrections from DB to inject as authoritative lookup
+async function runLLMCorrection(rawText, preProcessed, corrections = [], pronunciation = [], expectedContext = null, scenarioContext = null) {
   const userCorrections = normalizeCorrections(corrections);
   const wordLookup   = getWordCorrectionsForLLM(userCorrections);
   const paraExamples = getParaExamplesForLLM(userCorrections);
+  const pronHints    = getPronunciationHintsForLLM(pronunciation);
+  const hinglishHints = getHinglishHintsForLLM(30);
 
   // Build the few-shot examples block from saved paragraph corrections
   let exampleBlock = '';
@@ -94,49 +108,89 @@ async function runLLMCorrection(rawText, preProcessed, corrections = []) {
     }
   }
 
-  // Build the word lookup block
   let lookupBlock = '';
   if (wordLookup) {
     lookupBlock = `\n\nज्ञात शब्द सुधार (इन्हें पहली प्राथमिकता दो): ${wordLookup}`;
   }
 
+  let pronBlock = '';
+  if (pronHints) {
+    pronBlock = `\n\nइस व्यक्ति की उच्चारण प्रोफ़ाइल (अक्षर/वर्ण परीक्षा से): ${pronHints}`;
+  }
+
+  let contextBlock = '';
+  if (expectedContext) {
+    contextBlock = `\n\nसंदर्भ वाक्य (शब्द-दर-शब्द मिलान): "${expectedContext}"`;
+  }
+
+  let scenarioBlock = '';
+  if (scenarioContext) {
+    scenarioBlock = `\n\n🔴 सबसे महत्वपूर्ण — बातचीत का संदर्भ:
+दूसरे व्यक्ति ने पूछा: "${scenarioContext}"
+इस सवाल के जवाब में व्यक्ति बोल रहा है। इस संदर्भ से शब्दों का सही अर्थ निकालो:
+- अगर खाने का सवाल है और पेट की बात है → "पेट भरा" (full) होने की संभावना ज़्यादा है, "पेट खराब" (sick) से
+- अगर खाने का सवाल है और "था/ला/खा" जैसे शब्द हैं → "खा लिया" होने की संभावना ज़्यादा है
+- अगर जाने का सवाल है और मना कर रहा है → "नहीं जा पाऊंगा" का context लो`;
+  }
+
   const systemPrompt =
 `तुम एक AAC (Augmentative and Alternative Communication) सहायक हो।
 तुम उन लोगों की मदद करते हो जिन्हें बोलने में कठिनाई है — सेरेब्रल पाल्सी, डिसार्थ्रिया, मूकता।
-
-इनपुट दो प्रकार का हो सकता है:
+${scenarioBlock}
+इनपुट तीन प्रकार का हो सकता है:
 A) Whisper से निकला टूटा-फूटा हिंदी देवनागरी टेक्स्ट
-B) Hinglish / Roman Hindi (जैसे "mai school jana chahta tha")
+B) Hinglish / Roman Hindi
+C) दोनों का मिश्रण
 
 ──────────────────────────────────────────
-तुम्हारी सोचने की प्रक्रिया (क्रम से):
+⚠️ ज्ञात Whisper गलतियाँ (इन्हें हमेशा सुधारो):
+- "तूल" / "ततूल" = "स्कूल"
+- "बालिच" / "बालिश" = "बारिश"
+- "तूकी" / "इतली" / "इसली" = "इसलिए"
+- "दई" = "गई", "दए" = "गए", "दा" = "जा"
+- "तपले" = "कपड़े", "दीले" = "गीले"
+- "थाना" / "थाने" = "खाने" (खाने के संदर्भ में)
+- "था लिया" / "था ली" = "खा लिया" (खाने के बाद की बात हो तो)
+- "बला" / "बला हुआ" = "भरा" / "भरा हुआ" (पेट के संदर्भ में — पेट भरा)
+- "मेला" = "मेरा"
+- "पिलात्ता" / "पिलात" = "इसलिए"
+- "डालना"/"डाला" = "जाना"/"गया" (जगह के संदर्भ में)
+- "दोल" = "रो", "देल" = "देर"
+- "आद" / "आदि" = "आज"
 
-चरण 1 — पूरे पैराग्राफ का अर्थ समझो:
-पहले पूरा वाक्य/पैराग्राफ पढ़ो और समझो कि व्यक्ति क्या कहना चाह रहा है।
-एक विकलांग व्यक्ति की आम ज़रूरतें: खाना, पानी, दर्द, थकान, स्कूल, घर, मदद, दवाई, बाथरूम।
+──────────────────────────────────────────
+विशेष उदाहरण (इसी प्रकार सोचो):
+इनपुट: "नहीं आज मेला पेट बला हुआ है। मैंने था लिया है। पिलात्ता थाना इतली नहीं दा पाऊंगा।"
+संदर्भ: "आज खाने चलोगे क्या?"
+सही आउटपुट: "नहीं, आज मेरा पेट भरा हुआ है। मैंने खा लिया है। इसलिए मैं खाने नहीं जा पाऊंगा।"
+व्याख्या: "बला"→"भरा" (खाने का सवाल था इसलिए पेट भरा होना सही), "था लिया"→"खा लिया" (खाना खा चुका है), "पिलात्ता थाना इतली नहीं दा"→"इसलिए खाने नहीं जा"
 
-चरण 2 — प्रत्येक गलत शब्द को पड़ोसी शब्दों के संदर्भ में सुधारो:
-हर शब्द को उसके आगे और पीछे के शब्दों के साथ मिलाकर देखो।
-उदाहरण:
-- "बालिच हो रही थी" → पड़ोस में मौसम के शब्द हैं → "बालिच" = "बारिश"
-- "तपले पूरे दीले हो दए" → "तपले"=कपड़े, "दीले"=गीले, "दए"=गए
-- "दोल दो चिलो" → ठंड/कंपकंपी के संदर्भ में → "ठंड से कांप"
-- "थाई" → खाने के संदर्भ में → "थी" (भूखी थी)
+──────────────────────────────────────────
+Hinglish शब्द पहचान:
+${hinglishHints}
 
-चरण 3 — व्याकरण ठीक करो:
-- "मैं खाया" → "मैंने खाया"
-- "वो जारहा" → "वो जा रहा है"
-- Hinglish को देवनागरी में बदलो
+──────────────────────────────────────────
+सोचने की प्रक्रिया:
 
-चरण 4 — अधूरे वाक्य पूरे करो:
-- "पानी" → "मुझे पानी चाहिए"
-- "भूख" → "मुझे भूख लगी है"
+चरण 1 — बातचीत का संदर्भ देखो (सबसे पहले):
+अगर ऊपर संदर्भ दिया गया है तो उसके अनुसार शब्दों का अर्थ तय करो।
+
+चरण 2 — ज्ञात Whisper गलतियाँ ठीक करो।
+
+चरण 3 — Hinglish → देवनागरी।
+
+चरण 4 — पड़ोसी शब्दों के संदर्भ में सुधारो:
+हर शब्द को उसके आगे-पीछे के शब्दों से जोड़कर देखो।
+
+चरण 5 — व्याकरण ठीक करो।
+
+चरण 6 — अधूरे वाक्य पूरे करो।
 ──────────────────────────────────────────
 
 कड़े नियम:
-- उत्तर केवल हिंदी देवनागरी में। कोई English नहीं, कोई Roman नहीं।
+- उत्तर केवल हिंदी देवनागरी में।
 - मूल भावना बिल्कुल न बदलो।
-- कोई व्याख्या या लेबल नहीं — सिर्फ सुधरा हुआ वाक्य/पैराग्राफ।${lookupBlock}${exampleBlock}`;
+- कोई व्याख्या या लेबल नहीं।${lookupBlock}${pronBlock}${contextBlock}${exampleBlock}`;
 
   // Send BOTH the raw Whisper output AND the pre-processed version.
   // The LLM uses raw for phonetic clues and pre-processed for DB corrections.
@@ -156,7 +210,7 @@ B) Hinglish / Roman Hindi (जैसे "mai school jana chahta tha")
         { role: 'system', content: systemPrompt },
         { role: 'user',   content: userMessage },
       ],
-      temperature: 0.1,   // low = deterministic, but not 0 so it can reason
+      temperature: 0,   // 0 = maximum determinism and accuracy for correction
       max_tokens: 512,
     }),
   });
@@ -172,9 +226,97 @@ B) Hinglish / Roman Hindi (जैसे "mai school jana chahta tha")
   return result;
 }
 
+/** Final pass: verify paragraph makes sense; fix words using prev/next context */
+async function runParagraphSenseCheck(rawText, currentText, corrections = [], pronunciation = [], expectedContext = null, scenarioContext = null) {
+  const userCorrections = normalizeCorrections(corrections);
+  const pronHints = getPronunciationHintsForLLM(pronunciation);
+
+  const systemPrompt =
+`तुम AAC सहायक हो। दिया गया हिंदी वाक्य/पैराग्राफ पढ़ो और जाँचो कि क्या यह समझ में आता है।
+
+काम:
+1. हर शब्द को उसके पिछले और अगले शब्दों के साथ जोड़कर देखो — शब्द आपस में जुड़े होने चाहिए।
+2. अगर कोई शब्द अर्थहीन है, उसे संदर्भ के अनुसार सही शब्द से बदलो।
+3. अधूरा वाक्य हो तो उपयोगकर्ता के संदर्भ (खाना, पानी, दर्द, मदद, स्कूल) से पूरा करो।
+4. Hinglish/Roman शब्द बचे हों तो उन्हें देवनागरी में बदलो।
+5. मूल भावना न बदलो। केवल देवनागरी में उत्तर दो — कोई व्याख्या नहीं।
+
+⚠️ ज्ञात Whisper गलतियाँ: "तूल"=स्कूल, "बालिच"=बारिश, "तूकी"=क्योंकि, "दई"=गई, "तपले"=कपड़े, "दीले"=गीले, "तोशू"=खुश${pronHints ? `\n\nउच्चारण प्रोफ़ाइल: ${pronHints}` : ''}${expectedContext ? `\n\nलक्ष्य संदर्भ: "${expectedContext}"` : ''}${scenarioContext ? `\n\nकेयरगिवर का संदर्भ: "${scenarioContext}"` : ''}`;
+
+  const userMessage =
+`मूल Whisper: "${rawText}"
+वर्तमान सुधार: "${currentText}"
+
+पूरे पैराग्राफ की समझ जाँचो। गलत/असंबद्ध शब्द सही करो। पिछले-अगले शब्दों से जोड़कर पूरा सार्थक वाक्य दो।`;
+
+  const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+      temperature: 0,
+      max_tokens: 512,
+    }),
+  });
+
+  if (!r.ok) return currentText;
+
+  const d = await r.json();
+  const result = d.choices?.[0]?.message?.content?.trim() ?? currentText;
+  console.log(`[sense-check] "${result}"`);
+  return result;
+}
+
+async function runCorrectionPipeline(rawText, corrections, pronunciation, expectedContext = null, scenarioContext = null) {
+  const userCorrections = normalizeCorrections(corrections);
+  const pronProfile = normalizePronunciationProfile(pronunciation);
+
+  // Step 0: Hinglish transliteration (Roman Hindi → Devanagari)
+  const afterHinglish = transliterateHinglish(rawText);
+  if (afterHinglish !== rawText) {
+    console.log(`[correct] Hinglish→Devanagari: "${rawText}" → "${afterHinglish}"`);
+  }
+
+  const afterDB = applyCorrections(afterHinglish, userCorrections);
+  const afterPron = applyPronunciationProfile(afterDB, pronProfile);
+  const afterPhonetic = applyPhoneticRules(afterPron);
+
+  let aligned = afterPhonetic;
+  if (expectedContext) {
+    aligned = alignWithContext(afterPhonetic, expectedContext, userCorrections, pronProfile);
+  }
+
+  let final = aligned;
+  try {
+    final = await runLLMCorrection(rawText, aligned, userCorrections, pronProfile, expectedContext, scenarioContext);
+  } catch (llmErr) {
+    console.error('[correct] LLM failed:', llmErr.message);
+  }
+
+  try {
+    final = await runParagraphSenseCheck(rawText, final, userCorrections, pronProfile, expectedContext, scenarioContext);
+  } catch (senseErr) {
+    console.error('[correct] sense-check failed:', senseErr.message);
+  }
+
+  if (expectedContext) {
+    final = alignWithContext(final, expectedContext, userCorrections, pronProfile);
+  }
+
+  return final;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/correct — full pipeline
 //
+//  0. Hinglish transliteration    (instant, local)
 //  1. DB word/phrase substitution  (instant, local)
 //  2. Safe phonetic rules          (instant, local)
 //  3. LLM context-aware correction (Groq, paragraph-aware, DB-informed)
@@ -182,31 +324,15 @@ B) Hinglish / Roman Hindi (जैसे "mai school jana chahta tha")
 app.post('/api/correct', async (req, res) => {
   if (!GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY सेट नहीं है।' });
 
-  const { text, corrections } = req.body ?? {};
+  const { text, corrections, pronunciation, scenarioContext } = req.body ?? {};
   if (!text?.trim()) return res.json({ text: text ?? '' });
 
-  const userCorrections = normalizeCorrections(corrections);
-
   try {
-    // Step 1: Apply known DB word/phrase corrections
-    const afterDB = applyCorrections(text, userCorrections);
-
-    // Step 2: Safe phonetic fixes (only unambiguous Devanagari-level fixes)
-    const afterPhonetic = applyPhoneticRules(afterDB);
-
-    // Step 3: LLM — paragraph-aware, context-informed correction
-    // Pass both raw and pre-processed so LLM has phonetic clues from raw
-    let final = afterPhonetic;
-    try {
-      final = await runLLMCorrection(text, afterPhonetic, userCorrections);
-    } catch (llmErr) {
-      console.error('[correct] LLM failed, using pre-LLM result:', llmErr.message);
-    }
-
+    const final = await runCorrectionPipeline(text, corrections, pronunciation, null, scenarioContext);
     res.json({ text: final });
   } catch (err) {
     console.error('[correct] pipeline error:', err);
-    res.json({ text: text }); // last-resort: return original
+    res.json({ text: text });
   }
 });
 
@@ -218,75 +344,168 @@ app.post('/api/corrections/save', (_req, res) => {
   res.json({ ok: true, localOnly: true });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Test endpoints — Phase 1(a), 1(b), 2, 3
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Phase 1(a) — English A–Z
+app.get('/api/test/english-letters', (req, res) => {
+  const count = Math.min(parseInt(req.query.count) || 26, 26);
+  res.json({ letters: getEnglishLetterTests(count) });
+});
+
+// Phase 1(b) — Hindi Varnmala
+app.get('/api/test/hindi-varnmala', (req, res) => {
+  const count = Math.min(parseInt(req.query.count) || 48, 48);
+  res.json({ letters: getHindiVarnmalaTests(count) });
+});
+
+// Phase 2 — Sentence tests
+app.get('/api/test/sentences', (req, res) => {
+  const count = Math.min(parseInt(req.query.count) || 6, 18);
+  res.json({ sentences: getSentenceTests(count) });
+});
+
+// Phase 3 — Paragraph tests
+app.get('/api/test/paragraphs', (req, res) => {
+  const count = Math.min(parseInt(req.query.count) || 3, 6);
+  res.json({ paragraphs: getParagraphTests(count) });
+});
+
+// Backward-compatible endpoints
+app.get('/api/test/letters', (req, res) => {
+  const count = Math.min(parseInt(req.query.count) || 10, 74);
+  res.json({ letters: getLetterTests(count) });
+});
+
+app.get('/api/test/words', (req, res) => {
+  const count = Math.min(parseInt(req.query.count) || 6, 10);
+  res.json({ words: getWordTests(count) });
+});
+
 app.get('/api/test/questions', (req, res) => {
-  const count = Math.min(parseInt(req.query.count) || 5, 15);
+  const count = Math.min(parseInt(req.query.count) || 4, 18);
   res.json({ questions: getTestQuestions(count) });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// POST /api/test/evaluate — score a user's answer against expected
-// Body: { expected: "मुझे पानी चाहिए।", heard: "mujhe pani chahiye" }
-// Returns: { score, feedback, corrected }
-// Also auto-saves any word corrections to the DB
+// POST /api/test/evaluate — score against expected (all modes)
+// Body: { heard, expected, questionId, mode, englishAlt, corrections }
 // ─────────────────────────────────────────────────────────────────────────────
-const SCORE_PUNCTUATION_RE = /[\u0964,.?!]/g;
-
-function wordsForScore(value = '') {
-  return String(value)
-    .replace(SCORE_PUNCTUATION_RE, '')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((word) => word.toLowerCase());
-}
-
-function scoreAnswer(expected, corrected) {
-  const expWords = wordsForScore(expected);
-  const corrWords = wordsForScore(corrected);
-  const maxLen = Math.max(expWords.length, corrWords.length);
-  if (maxLen === 0) return 0;
-
-  let matched = 0;
-  expWords.forEach((word, index) => {
-    if (corrWords[index] === word) matched++;
-  });
-
-  return Math.round((matched / maxLen) * 100);
-}
-
 app.post('/api/test/evaluate', async (req, res) => {
   if (!GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY is not set.' });
 
-  const { expected, heard, questionId, corrections } = req.body ?? {};
-  const question = questionId == null ? null : getTestQuestionById(questionId);
-  const target = question?.hindi ?? expected;
+  const { expected, heard, questionId, mode = 'paragraph', englishAlt, corrections, pronunciation } = req.body ?? {};
+
+  let target = expected;
+  let altEnglish = englishAlt ?? null;
+
+  if (mode === 'letter' && questionId != null) {
+    const letterQ = getLetterTestById(questionId);
+    if (letterQ) target = letterQ.letter;
+  } else if (mode === 'word' && questionId != null) {
+    const wordQ = getWordTestById(questionId);
+    if (wordQ) {
+      target = wordQ.hindi;
+      altEnglish = wordQ.english;
+    }
+  } else if (mode === 'sentence' && questionId != null) {
+    const sentenceQ = getSentenceTestById(questionId);
+    if (sentenceQ) target = sentenceQ.hindi;
+  } else if (mode === 'paragraph' && questionId != null) {
+    const paraQ = getParagraphTestById(questionId);
+    if (paraQ) {
+      target = paraQ.hindi;
+    } else {
+      // Fallback to sentence dataset
+      const sentenceQ = getSentenceTestById(questionId);
+      if (sentenceQ) target = sentenceQ.hindi;
+    }
+  } else if (questionId != null) {
+    const question = getTestQuestionById(questionId);
+    target = question?.hindi ?? expected;
+  }
 
   if (!target?.trim()) {
     return res.status(400).json({ error: 'expected or questionId is required' });
   }
 
   if (!heard?.trim()) {
-    return res.json({ score: 0, corrected: '', expected: target, questionId: question?.id ?? questionId ?? null });
+    return res.json({
+      score: 0,
+      corrected: '',
+      expected: target,
+      questionId: questionId ?? null,
+      mode,
+    });
   }
 
   const userCorrections = normalizeCorrections(corrections);
+  const pronProfile = normalizePronunciationProfile(pronunciation);
 
   try {
-    const afterDB       = applyCorrections(heard, userCorrections);
-    const afterPhonetic = applyPhoneticRules(afterDB);
-    let corrected = afterPhonetic;
-    try {
-      corrected = await runLLMCorrection(heard, afterPhonetic, userCorrections);
-    } catch { /* use pre-LLM result */ }
+    const corrected = await runCorrectionPipeline(
+      heard,
+      userCorrections,
+      pronProfile,
+      (mode === 'paragraph' || mode === 'sentence') ? target : null,
+    );
 
-    const score = scoreAnswer(target, corrected);
+    let final = corrected;
+    if (mode === 'word' || mode === 'letter') {
+      final = alignWithContext(corrected, target, userCorrections, pronProfile, altEnglish);
+    } else {
+      final = alignWithContext(corrected, target, userCorrections, pronProfile);
+    }
 
-    res.json({ score, corrected, expected: target, questionId: question?.id ?? questionId ?? null });
+    const score = scoreWordAlignment(target, final);
+
+    res.json({
+      score,
+      corrected: final,
+      expected: target,
+      questionId: questionId ?? null,
+      mode,
+      englishAlt: altEnglish,
+    });
   } catch (err) {
     console.error('[test/evaluate]', err);
     res.status(500).json({ error: 'Evaluation failed.' });
   }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/test/model — Model accuracy self-test
+// Body: { text } — runs the correction pipeline and returns the result
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/api/test/model', async (req, res) => {
+  if (!GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY is not set.' });
+
+  const { text, expected, corrections, pronunciation } = req.body ?? {};
+  if (!text?.trim()) return res.status(400).json({ error: 'text is required' });
+
+  try {
+    const corrected = await runCorrectionPipeline(
+      text,
+      corrections ?? [],
+      pronunciation ?? [],
+      expected ?? null,
+    );
+
+    const score = expected ? scoreWordAlignment(expected, corrected) : null;
+
+    res.json({
+      input: text,
+      corrected,
+      expected: expected ?? null,
+      score,
+    });
+  } catch (err) {
+    console.error('[test/model]', err);
+    res.status(500).json({ error: 'Model test failed.' });
+  }
+});
+
 app.get('/api/corrections', (_req, res) => {
   res.json({ corrections: [] });
 });
@@ -299,7 +518,7 @@ app.delete('/api/corrections/:raw', (_req, res) => {
 // Serve built frontend (only in production — skip if API routes should handle)
 // ─────────────────────────────────────────────────────────────────────────────
 const distPath = path.join(__dirname, '..', 'dist');
-if (fs.existsSync(distPath)) {
+if (!process.env.VERCEL && fs.existsSync(distPath)) {
   app.use(express.static(distPath));
   // IMPORTANT: only catch non-API routes so API endpoints are never shadowed
   app.get(/^(?!\/api).*$/, (_req, res) => res.sendFile(path.join(distPath, 'index.html')));
@@ -308,7 +527,7 @@ if (fs.existsSync(distPath)) {
 if (!process.env.VERCEL) {
 app.listen(PORT, () => {
   console.log(`✅  Server on http://localhost:${PORT}`);
-  console.log(`    Model: llama-3.3-70b-versatile | Pipeline: DB → Phonetic → LLM`);
+  console.log(`    Model: llama-3.3-70b-versatile | Pipeline: Hinglish → DB → Phonetic → LLM`);
   if (!GROQ_API_KEY) console.warn('⚠️  GROQ_API_KEY not set');
 });
 }

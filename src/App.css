@@ -851,6 +851,64 @@
   font-size: 0.8rem;
 }
 
+.test-mode__phase-badge {
+  display: inline-block;
+  padding: 0.35rem 0.75rem;
+  background: rgba(61, 111, 212, 0.15);
+  border: 1px solid rgba(61, 111, 212, 0.35);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #8ab4ff;
+  margin-bottom: 0.5rem;
+}
+
+.test-mode__word-pair {
+  display: flex;
+  align-items: stretch;
+  gap: 0.75rem;
+  background: #161a22;
+  border: 1.5px solid #3d6fd4;
+  border-radius: 16px;
+  padding: 1rem 1.1rem;
+}
+
+.test-mode__word-en,
+.test-mode__word-hi {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #f0f3f8;
+}
+
+.test-mode__word-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6b7385;
+}
+
+.test-mode__word-divider {
+  display: flex;
+  align-items: center;
+  color: #353d4f;
+  font-size: 1.25rem;
+}
+
+.test-mode__results-heading {
+  margin: 1rem 0 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #6b7385;
+}
+
 /* ── Question card ───────────────────────────────────────────────────────── */
 .test-mode__question {
   background: #161a22;
@@ -1111,3 +1169,123 @@
   color: #9aa3b5;
   text-align: center;
 }
+/* %% Scenario Input %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% */
+.scenario-input {
+  background: #161a22;
+  border: 1px solid #252a36;
+  border-radius: 16px;
+  padding: 1rem 1.1rem;
+}
+
+.scenario-input__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.6rem;
+}
+
+.scenario-input__label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #9aa3b5;
+  letter-spacing: 0.02em;
+}
+
+.scenario-input__help {
+  font-size: 0.75rem;
+  color: #6b7385;
+}
+
+.scenario-input__controls {
+  display: flex;
+  gap: 0.6rem;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.scenario-input__text {
+  flex: 1;
+  background: #0f1117;
+  border: 1px solid #353d4f;
+  border-radius: 10px;
+  padding: 0.65rem 0.85rem;
+  color: #e8eaef;
+  font-family: inherit;
+  font-size: 0.95rem;
+  transition: border-color 0.15s;
+}
+
+.scenario-input__text:focus {
+  outline: none;
+  border-color: #5b9cff;
+}
+
+.scenario-input__mic {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: #1e2430;
+  border: 1px solid #353d4f;
+  color: #c8d0e0;
+  font-size: 1.1rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.scenario-input__mic:hover:not(:disabled) {
+  background: #252c3a;
+  border-color: #5b9cff;
+}
+
+.scenario-input__mic--recording {
+  background: rgba(196, 80, 80, 0.1);
+  border-color: #c45050;
+  color: #f0b0b0;
+  animation: record-pulse 1.2s infinite;
+}
+
+.scenario-input__presets {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.scenario-input__preset-btn {
+  background: transparent;
+  border: 1px solid #353d4f;
+  border-radius: 6px;
+  padding: 0.25rem 0.6rem;
+  color: #9aa3b5;
+  font-size: 0.75rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.scenario-input__preset-btn:hover:not(:disabled) {
+  background: #1e2430;
+  border-color: #5b9cff;
+  color: #e8eaef;
+}
+
+.scenario-input__preset-btn--clear {
+  margin-left: auto;
+  border-color: #c45050;
+  color: #c45050;
+}
+.scenario-input__preset-btn--clear:hover:not(:disabled) {
+  background: rgba(196, 80, 80, 0.1);
+}
+
+.scenario-input__status, .scenario-input__error {
+  font-size: 0.8rem;
+  color: #b8c0d0;
+  margin-bottom: 0.5rem;
+}
+.scenario-input__error { color: #f0b0b0; }
+
+

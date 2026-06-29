@@ -1,5 +1,7 @@
 # Whisper Flow
 
+**Live Demo:** [https://wisperflow-blue.vercel.app/](https://wisperflow-blue.vercel.app/)
+
 Turn unclear speech into clean, grammatically corrected text — then speak it aloud.
 
 **Pipeline:** Mic → Groq Whisper (STT) → LanguageTool (grammar) → Web Speech API (TTS)

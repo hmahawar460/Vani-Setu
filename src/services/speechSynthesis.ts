@@ -14,13 +14,17 @@ export function setPreferredVoice(voice: SpeechSynthesisVoice | null): void {
 function getBestHindiVoice(): SpeechSynthesisVoice | undefined {
   if (userSelectedVoice) return userSelectedVoice;
   const voices = cachedVoices.length > 0 ? cachedVoices : window.speechSynthesis.getVoices();
+  
+  // Prioritize known high-quality female voices first
+  const femaleNames = ['swara', 'kalpana', 'aditi', 'google हिन्दी', 'google hindi'];
+  
+  const hindiVoices = voices.filter(v => v.lang.startsWith('hi') || v.name.toLowerCase().includes('hindi'));
+  
   return (
-    voices.find((v) => v.lang === 'hi-IN' && v.localService) ??
-    voices.find((v) => v.lang === 'hi-IN') ??
-    voices.find((v) => v.lang.startsWith('hi') && v.localService) ??
-    voices.find((v) => v.lang.startsWith('hi')) ??
-    voices.find((v) => v.name.toLowerCase().includes('hindi')) ??
-    voices.find((v) => v.lang.includes('IN'))
+    hindiVoices.find((v) => femaleNames.some(name => v.name.toLowerCase().includes(name))) ??
+    hindiVoices.find((v) => v.lang === 'hi-IN' && v.localService) ??
+    hindiVoices.find((v) => v.lang === 'hi-IN') ??
+    hindiVoices[0]
   );
 }
 
@@ -30,6 +34,11 @@ function delay(ms: number): Promise<void> {
 }
 
 export function speak(text: string, rate = 0.85): Promise<void> {
+  // Directly pass the text to speakRaw so Hinglish words are read
+  return speakRaw(text, rate);
+}
+
+function speakRaw(text: string, rate = 0.85): Promise<void> {
   return new Promise((resolve, reject) => {
     if (!isSpeechSynthesisSupported()) {
       reject(new Error('इस ब्राउज़र में आवाज़ सपोर्ट नहीं है। Chrome या Edge आज़माएँ।'));

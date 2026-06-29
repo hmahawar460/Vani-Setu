@@ -6,6 +6,7 @@ import { StatusBanner, type PipelineStage } from './components/StatusBanner';
 import { TestMode } from './components/TestMode';
 import { TranscriptPanel } from './components/TranscriptPanel';
 import { TypeInput } from './components/TypeInput';
+import { ScenarioInput } from './components/ScenarioInput';
 import { VoiceSelector } from './components/VoiceSelector';
 import { useAudioRecorder } from './hooks/useAudioRecorder';
 import { checkHealth, transcribeAudio } from './services/groq';
@@ -27,6 +28,7 @@ export default function App() {
   const [groqReady, setGroqReady] = useState<boolean | null>(null);
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [testOpen,  setTestOpen]  = useState(false);
+  const [scenarioContext, setScenarioContext] = useState('');
 
   const { state: recorderState, startRecording, stopRecording } = useAudioRecorder();
 
@@ -61,7 +63,7 @@ export default function App() {
       }
       try {
         setStage('correcting');
-        const corrected = await correctHindi(transcribed);
+        const corrected = await correctHindi(transcribed, scenarioContext);
         setCorrectedText(corrected);
         setStage('done'); // set done before speaking so UI shows corrected text
 
@@ -74,7 +76,7 @@ export default function App() {
         setError(err instanceof Error ? err.message : 'कुछ गलत हो गया');
       }
     },
-    [autoSpeak, speakHindi],
+    [autoSpeak, speakHindi, scenarioContext],
   );
 
   /** After mic recording: transcribe → pipeline */
@@ -214,6 +216,12 @@ export default function App() {
           correctedText={correctedText}
           onCorrectedChange={handleCorrectedChange}
           stage={displayStage}
+        />
+
+        <ScenarioInput 
+          scenario={scenarioContext} 
+          onChange={setScenarioContext} 
+          disabled={isBusy || groqReady === false} 
         />
 
         {/* Mic */}
