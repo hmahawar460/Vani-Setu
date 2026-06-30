@@ -120,9 +120,28 @@ app.post('/api/transcribe', rateLimit(20), upload.single('audio'), async (req, r
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Word-count constraint helper
-// Output must stay within 120% of input word count to prevent hallucination.
 // If model is confident (input ≤ 3 words) it may extend to 4 words max.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Extract topic from stranger's question so LLM knows the answer domain.
+ * This is critical — prevents LLM from guessing food/water when asked about movies.
+ */
+function getTopicFromScenario(question) {
+  if (!question) return 'general conversation';
+  const q = question.toLowerCase();
+  if (/मुवी|मूवी|movie|film|फिल्म|सिनेमा|cinema|web series|वेब सीरीज|देखी|देखा|देखे/.test(q))
+    return 'movies/films — user is naming or describing a movie they watched. Garbled words like "जोई","जॉय","डोई","जोय" etc. are likely MOVIE NAMES — keep them as-is or transliterate to Hindi, do NOT replace with food/water words';
+  if (/खाना|खाने|food|restaurant|कपड़|cloth|shirt|dress|दुकान/.test(q))
+    return 'shopping/food';
+  if (/स्कूल|school|college|पढ़|class/.test(q))
+    return 'education/school';
+  if (/दर्द|pain|बीमार|sick|doctor|hospital/.test(q))
+    return 'health';
+  if (/खेल|play|game|sport/.test(q))
+    return 'sports/games';
+  return `topic of: "${question}"`;
+}
 function countWords(text) {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
@@ -179,12 +198,21 @@ async function runLLMCorrection(rawText, preProcessed, corrections = [], pronunc
 
   let scenarioBlock = '';
   if (scenarioContext) {
-    scenarioBlock = `\n\n🔴 सबसे महत्वपूर्ण — बातचीत का संदर्भ:
-दूसरे व्यक्ति ने पूछा: "${scenarioContext}"
-इस सवाल के जवाब में व्यक्ति बोल रहा है। इस संदर्भ से शब्दों का सही अर्थ निकालो:
-- अगर खाने का सवाल है और पेट की बात है → "पेट भरा" (full) होने की संभावना ज़्यादा है, "पेट खराब" (sick) से
-- अगर खाने का सवाल है और "था/ला/खा" जैसे शब्द हैं → "खा लिया" होने की संभावना ज़्यादा है
-- अगर जाने का सवाल है और मना कर रहा है → "नहीं जा पाऊंगा" का context लो`;
+    scenarioBlock = `🔴 MOST IMPORTANT — READ THIS FIRST:
+The other person asked: "${scenarioContext}"
+The user is answering THIS question. Use the question's topic to determine what the user is trying to say.
+
+Topic analysis:
+- If the question is about a MOVIE/FILM → user is talking about a movie. Words like "जोई", "जॉय", "जोय", "डोई" etc. are likely MOVIE NAMES, not random words.
+- If the question is about FOOD → user is talking about food.
+- If the question is about SCHOOL/PLACE → user is talking about going somewhere.
+- DO NOT interpret words as food/water/pain if the question is clearly about something else.
+
+For this specific question "${scenarioContext}":
+- The answer MUST be related to: ${getTopicFromScenario(scenarioContext)}
+- Any word that doesn't fit this topic — try to interpret it as a name/term related to the topic first.
+
+`;
   }
 
   // Calculate allowed word count range for the output
@@ -192,9 +220,9 @@ async function runLLMCorrection(rawText, preProcessed, corrections = [], pronunc
   const maxOutputWords = Math.max(Math.ceil(inputWordCount * 1.2), inputWordCount + 4);
 
   const systemPrompt =
-`तुम एक AAC (Augmentative and Alternative Communication) सहायक हो।
+`${scenarioBlock}तुम एक AAC (Augmentative and Alternative Communication) सहायक हो।
 तुम उन लोगों की मदद करते हो जिन्हें बोलने में कठिनाई है — सेरेब्रल पाल्सी, डिसार्थ्रिया, मूकता।
-${scenarioBlock}
+
 ⚠️ शब्द सीमा (बहुत महत्वपूर्ण):
 - इनपुट में लगभग ${inputWordCount} शब्द हैं।
 - आउटपुट में अधिकतम ${maxOutputWords} शब्द होने चाहिए।
