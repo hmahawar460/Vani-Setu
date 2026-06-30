@@ -119,8 +119,33 @@ app.post('/api/transcribe', rateLimit(20), upload.single('audio'), async (req, r
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LLM correction — context-aware, paragraph-level, with DB word lookup
+// Word-count constraint helper
+// Output must stay within 120% of input word count to prevent hallucination.
+// If model is confident (input ≤ 3 words) it may extend to 4 words max.
 // ─────────────────────────────────────────────────────────────────────────────
+function countWords(text) {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function enforceWordLimit(input, output) {
+  const inputWords  = countWords(input);
+  if (inputWords === 0) return output;
+
+  const outputWords = countWords(output);
+
+  // Rule: output ≤ max(inputWords × 1.2, inputWords + 4) words
+  // For very short input (1-2 words): max 4 words output
+  // For full para (100 words): max 120 words output
+  const maxWords = Math.max(Math.ceil(inputWords * 1.2), inputWords + 4);
+
+  if (outputWords <= maxWords) return output;
+
+  // Trim to maxWords
+  const words = output.trim().split(/\s+/);
+  const trimmed = words.slice(0, maxWords).join(' ');
+  console.log(`[word-limit] trimmed ${outputWords}→${maxWords} words`);
+  return trimmed;
+}
 async function runLLMCorrection(rawText, preProcessed, corrections = [], pronunciation = [], expectedContext = null, scenarioContext = null) {
   const userCorrections = normalizeCorrections(corrections);
   const wordLookup   = getWordCorrectionsForLLM(userCorrections);
@@ -162,10 +187,22 @@ async function runLLMCorrection(rawText, preProcessed, corrections = [], pronunc
 - अगर जाने का सवाल है और मना कर रहा है → "नहीं जा पाऊंगा" का context लो`;
   }
 
+  // Calculate allowed word count range for the output
+  const inputWordCount = countWords(rawText);
+  const maxOutputWords = Math.max(Math.ceil(inputWordCount * 1.2), inputWordCount + 4);
+
   const systemPrompt =
 `तुम एक AAC (Augmentative and Alternative Communication) सहायक हो।
 तुम उन लोगों की मदद करते हो जिन्हें बोलने में कठिनाई है — सेरेब्रल पाल्सी, डिसार्थ्रिया, मूकता।
 ${scenarioBlock}
+⚠️ शब्द सीमा (बहुत महत्वपूर्ण):
+- इनपुट में लगभग ${inputWordCount} शब्द हैं।
+- आउटपुट में अधिकतम ${maxOutputWords} शब्द होने चाहिए।
+- अगर उपयोगकर्ता 2 शब्द बोले → 2-4 शब्दों में जवाब दो।
+- अगर उपयोगकर्ता 10 शब्द बोले → 10-12 शब्दों में जवाब दो।
+- अगर उपयोगकर्ता 100 शब्द बोले → 100-120 शब्दों में जवाब दो।
+- कभी भी इस सीमा से बाहर मत जाओ — यह नियम सबसे कड़ा है।
+
 इनपुट तीन प्रकार का हो सकता है:
 A) Whisper से निकला टूटा-फूटा हिंदी देवनागरी टेक्स्ट
 B) Hinglish / Roman Hindi
@@ -250,7 +287,9 @@ ${hinglishHints}
   }
 
   const d = await r.json();
-  const result = d.choices?.[0]?.message?.content?.trim() ?? preProcessed;
+  const raw = d.choices?.[0]?.message?.content?.trim() ?? preProcessed;
+  // Apply word-count constraint to prevent hallucination
+  const result = enforceWordLimit(rawText, raw);
   console.log(`[correct] LLM result: "${result}"`);
   return result;
 }
@@ -303,6 +342,72 @@ async function runParagraphSenseCheck(rawText, currentText, corrections = [], pr
   return result;
 }
 
+/**
+ * Final confirmation step — verifies the corrected answer is relevant
+ * to the stranger's question. Uses fast/cheap model. Runs after sense-check.
+ */
+async function runContextConfirmation(rawText, currentText, scenarioContext, expectedContext) {
+  const inputWordCount = countWords(rawText);
+  const maxWords = Math.max(Math.ceil(inputWordCount * 1.2), inputWordCount + 4);
+
+  let contextLine = '';
+  if (scenarioContext) contextLine += `प्रश्न: "${scenarioContext}"\n`;
+  if (expectedContext) contextLine += `अपेक्षित संदर्भ: "${expectedContext}"\n`;
+
+  const systemPrompt =
+`तुम AAC सहायक हो। नीचे एक वाक् विकलांग व्यक्ति का सुधरा हुआ उत्तर है।
+${contextLine}
+जाँचो: क्या यह उत्तर ऊपर के प्रश्न के जवाब में सही और प्रासंगिक है?
+
+नियम:
+- अगर उत्तर सही है → बिल्कुल वैसा ही लिखो, कोई बदलाव नहीं।
+- अगर उत्तर सवाल से असंबंधित है → केवल ज़रूरी शब्द बदलो।
+- अधिकतम ${maxWords} शब्द।
+- केवल हिंदी देवनागरी। कोई व्याख्या नहीं। सिर्फ उत्तर लिखो।`;
+
+  const r = await groqFetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: currentText },
+      ],
+      temperature: 0,
+      max_tokens: 200,
+    }),
+  });
+
+  if (!r.ok) return currentText;
+
+  const d = await r.json();
+  const result = (d.choices?.[0]?.message?.content ?? '').trim();
+
+  // Safety: if result looks like meta-commentary (contains "उत्तर", "सवाल", "यह"),
+  // it means the model explained instead of answering — discard and use current
+  const isMetaResponse = /^(हाँ|नहीं)[,،]?\s*(यह|यह उत्तर|उत्तर)/i.test(result);
+  if (!result || isMetaResponse) {
+    console.log(`[confirm] discarded meta-response, keeping: "${currentText}"`);
+    return currentText;
+  }
+
+  // Safety: if result is significantly shorter than current (>30% shorter),
+  // the model over-simplified — discard and keep current
+  const currentWordCount = countWords(currentText);
+  const resultWordCount  = countWords(result);
+  if (currentWordCount > 4 && resultWordCount < currentWordCount * 0.7) {
+    console.log(`[confirm] result too short (${resultWordCount} vs ${currentWordCount}), keeping original`);
+    return currentText;
+  }
+
+  console.log(`[confirm] "${result}"`);
+  return result;
+}
+
 async function runCorrectionPipeline(rawText, corrections, pronunciation, expectedContext = null, scenarioContext = null) {
   const userCorrections = normalizeCorrections(corrections);
   const pronProfile = normalizePronunciationProfile(pronunciation);
@@ -313,8 +418,8 @@ async function runCorrectionPipeline(rawText, corrections, pronunciation, expect
     console.log(`[correct] Hinglish→Devanagari: "${rawText}" → "${afterHinglish}"`);
   }
 
-  const afterDB = applyCorrections(afterHinglish, userCorrections);
-  const afterPron = applyPronunciationProfile(afterDB, pronProfile);
+  const afterDB       = applyCorrections(afterHinglish, userCorrections);
+  const afterPron     = applyPronunciationProfile(afterDB, pronProfile);
   const afterPhonetic = applyPhoneticRules(afterPron);
 
   let aligned = afterPhonetic;
@@ -322,6 +427,7 @@ async function runCorrectionPipeline(rawText, corrections, pronunciation, expect
     aligned = alignWithContext(afterPhonetic, expectedContext, userCorrections, pronProfile);
   }
 
+  // Step 1: LLM correction (word-count constrained)
   let final = aligned;
   try {
     final = await runLLMCorrection(rawText, aligned, userCorrections, pronProfile, expectedContext, scenarioContext);
@@ -329,10 +435,25 @@ async function runCorrectionPipeline(rawText, corrections, pronunciation, expect
     console.error('[correct] LLM failed:', llmErr.message);
   }
 
+  // Step 2: Para sense-check — Run TWICE for higher accuracy
+  // First pass: fix any remaining broken words using prev/next context
   try {
     final = await runParagraphSenseCheck(rawText, final, userCorrections, pronProfile, expectedContext, scenarioContext);
-  } catch (senseErr) {
-    console.error('[correct] sense-check failed:', senseErr.message);
+    final = enforceWordLimit(rawText, final);
+  } catch (e) {
+    console.error('[correct] sense-check pass 1 failed:', e.message);
+  }
+
+  // Second pass: context confirmation — only run if input is >3 words
+  // (short inputs like "पानी" don't need confirmation, it causes more harm)
+  const inputWords = countWords(rawText);
+  if (inputWords > 3 && (scenarioContext || expectedContext)) {
+    try {
+      final = await runContextConfirmation(rawText, final, scenarioContext, expectedContext);
+      final = enforceWordLimit(rawText, final);
+    } catch (e) {
+      console.error('[correct] context confirmation failed:', e.message);
+    }
   }
 
   if (expectedContext) {

@@ -177,7 +177,7 @@ export default function App() {
         <div className="app__brand">
           <span className="app__logo" aria-hidden="true">🎙️</span>
           <div>
-            <h1 className="app__title">Whisper Flow</h1>
+            <h1 className="app__title">वाणी सेतु</h1>
             <p className="app__subtitle">अस्पष्ट बोली → सही हिंदी → आवाज़</p>
           </div>
         </div>
