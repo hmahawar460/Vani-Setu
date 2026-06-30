@@ -12,7 +12,7 @@ import {
   normalizeCorrections,
 } from './db.js';
 import { applyPhoneticRules } from './hindiPhonetic.js';
-import { transliterateHinglish, hasHinglish, getHinglishHintsForLLM } from './hinglishTranslit.js';
+import { transliterateHinglish, getHinglishHintsForLLM } from './hinglishTranslit.js';
 import {
   getTestQuestionById,
   getTestQuestions,
@@ -29,6 +29,8 @@ import {
 } from './testDataset.js';
 import { applyPronunciationProfile, getPronunciationHintsForLLM, normalizePronunciationProfile } from './pronunciationMatch.js';
 import { alignWithContext, scoreWordAlignment } from './wordAlign.js';
+import { cacheGet, cacheSet } from './cache.js';
+import { rateLimit } from './rateLimit.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -37,8 +39,35 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 
 const PORT         = process.env.PORT || 3001;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
+// In-flight deduplication: if same text is being corrected concurrently,
+// share one LLM call instead of making N identical calls
+const inFlight = new Map();
+
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
+
+// Groq fetch with retry on 429 rate limit
+async function groqFetch(url, options, maxRetries = 3) {
+  let lastError;
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    if (attempt > 0) {
+      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+    }
+    try {
+      const r = await fetch(url, options);
+      if (r.status === 429) {
+        const retryAfter = parseInt(r.headers.get('retry-after') || '2', 10);
+        await new Promise(res => setTimeout(res, retryAfter * 1000));
+        lastError = new Error('Rate limited');
+        continue;
+      }
+      return r;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Health check
@@ -50,7 +79,7 @@ app.get('/api/health', (_req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // Transcribe audio → Hindi text
 // ─────────────────────────────────────────────────────────────────────────────
-app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
+app.post('/api/transcribe', rateLimit(20), upload.single('audio'), async (req, res) => {
   if (!GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY सेट नहीं है।' });
   if (!req.file)    return res.status(400).json({ error: 'कोई ऑडियो फ़ाइल नहीं मिली।' });
 
@@ -72,7 +101,7 @@ app.post('/api/transcribe', upload.single('audio'), async (req, res) => {
     );
     fd.append('temperature', '0');
 
-    const r = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+    const r = await groqFetch('https://api.groq.com/openai/v1/audio/transcriptions', {
       method: 'POST',
       headers: { Authorization: `Bearer ${GROQ_API_KEY}` },
       body: fd,
@@ -198,7 +227,7 @@ ${hinglishHints}
     ? rawText
     : `मूल (Whisper आउटपुट): "${rawText}"\nआंशिक सुधार: "${preProcessed}"\n\nकृपया पूरा सुधार करो।`;
 
-  const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+  const r = await groqFetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${GROQ_API_KEY}`,
@@ -249,7 +278,7 @@ async function runParagraphSenseCheck(rawText, currentText, corrections = [], pr
 
 पूरे पैराग्राफ की समझ जाँचो। गलत/असंबद्ध शब्द सही करो। पिछले-अगले शब्दों से जोड़कर पूरा सार्थक वाक्य दो।`;
 
-  const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+  const r = await groqFetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${GROQ_API_KEY}`,
@@ -321,14 +350,45 @@ async function runCorrectionPipeline(rawText, corrections, pronunciation, expect
 //  2. Safe phonetic rules          (instant, local)
 //  3. LLM context-aware correction (Groq, paragraph-aware, DB-informed)
 // ─────────────────────────────────────────────────────────────────────────────
-app.post('/api/correct', async (req, res) => {
+app.post('/api/correct', rateLimit(30), async (req, res) => {
   if (!GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY सेट नहीं है।' });
 
   const { text, corrections, pronunciation, scenarioContext } = req.body ?? {};
   if (!text?.trim()) return res.json({ text: text ?? '' });
 
+  // Cache key: text only (corrections are user-specific so we skip caching those)
+  const hasUserCorrections = Array.isArray(corrections) && corrections.length > 0;
+  const hasPronunciation   = Array.isArray(pronunciation) && pronunciation.length > 0;
+  const cacheKey = !hasUserCorrections && !hasPronunciation && !scenarioContext ? text.trim() : null;
+
+  // 1. Cache hit — return instantly, no LLM call
+  if (cacheKey) {
+    const cached = cacheGet(cacheKey);
+    if (cached) {
+      console.log(`[correct] cache hit: "${text.trim().slice(0, 40)}"`);
+      return res.json({ text: cached });
+    }
+  }
+
+  // 2. Deduplication — if same text is already in-flight, wait for that result
+  if (cacheKey && inFlight.has(cacheKey)) {
+    try {
+      const result = await inFlight.get(cacheKey);
+      return res.json({ text: result });
+    } catch {
+      // fall through to fresh call
+    }
+  }
+
+  // 3. Run pipeline — wrap in promise for deduplication
+  const pipelinePromise = runCorrectionPipeline(text, corrections, pronunciation, null, scenarioContext)
+    .finally(() => { if (cacheKey) inFlight.delete(cacheKey); });
+
+  if (cacheKey) inFlight.set(cacheKey, pipelinePromise);
+
   try {
-    const final = await runCorrectionPipeline(text, corrections, pronunciation, null, scenarioContext);
+    const final = await pipelinePromise;
+    if (cacheKey) cacheSet(cacheKey, final);
     res.json({ text: final });
   } catch (err) {
     console.error('[correct] pipeline error:', err);
