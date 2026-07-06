@@ -3,7 +3,13 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
   try {
     return JSON.parse(text) as T;
   } catch {
-    throw new Error('Server returned an invalid response. Check if the backend is running or deployed correctly.');
+    // Include status and a snippet of the raw response to help diagnose the issue
+    const preview = text.slice(0, 200).replace(/\n/g, ' ');
+    throw new Error(
+      `Server error (HTTP ${response.status}): received non-JSON response. ` +
+      `Preview: "${preview}". ` +
+      `Check that GROQ_API_KEY is set in Vercel's Environment Variables dashboard.`
+    );
   }
 }
 
