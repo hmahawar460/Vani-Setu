@@ -441,21 +441,6 @@ async function runCorrectionPipeline(rawText, corrections, pronunciation, expect
   // ── Post-LLM Macro Pass ────────────────────────────────────────────────
   final = macroPostProcess(final, userCorrections, pronProfile);
 
-  // ── Steps 2+3: sense-check + confirmation only when scenario context present
-  // Skipped otherwise to stay within Vercel's 60s timeout
-  if (scenarioContext && countWords(rawText) > 3) {
-    const overlap = wordOverlap(preProcessed, final);
-    if (overlap <= 90) {
-      try {
-        final = await runContextConfirmation(rawText, final, scenarioContext, expectedContext);
-        final = enforceWordLimit(rawText, final);
-        final = macroPostProcess(final, userCorrections, pronProfile);
-      } catch (e) {
-        console.error('[correct] confirmation failed:', e.message);
-      }
-    }
-  }
-
   if (expectedContext) {
     final = alignWithContext(final, expectedContext, userCorrections, pronProfile);
   }
