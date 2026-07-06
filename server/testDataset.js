@@ -192,6 +192,53 @@ export const PARAGRAPH_DATASET = [
 ];
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Stammerer Specific Dataset (for Accuracy Testing)
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const STAMMERER_DATASET = [
+  // Hindi repetition & prolongation patterns
+  { id: 5001, input: 'मु-मु-मुझे पा-पानी चा-चाहिए', expected: 'मुझे पानी चाहिए।', lang: 'hindi', category: 'needs' },
+  { id: 5002, input: 'मुउउझे पाआनी चाहीये', expected: 'मुझे पानी चाहिए।', lang: 'hindi', category: 'needs' },
+  { id: 5003, input: 'मै-मैं स् कू ल जा-जा रहा हूँ', expected: 'मैं स्कूल जा रहा हूँ।', lang: 'hindi', category: 'school' },
+  { id: 5004, input: 'मुझे भ् भ् भूख लगी है', expected: 'मुझे भूख लगी है।', lang: 'hindi', category: 'needs' },
+  { id: 5005, input: 'मे-मेरे सीर मे-में द-दर्द है', expected: 'मेरे सिर में दर्द है।', lang: 'hindi', category: 'health' },
+  { id: 5006, input: 'पा-पा-पापा आ गए', expected: 'पापा आ गए।', lang: 'hindi', category: 'family' },
+  { id: 5007, input: 'मु-मुझे द-दवाई खा-खानी है', expected: 'मुझे दवाई खानी है।', lang: 'hindi', category: 'health' },
+  { id: 5008, input: 'बा-बा-बाहर बा-बारिश हो रही है', expected: 'बाहर बारिश हो रही है।', lang: 'hindi', category: 'weather' },
+  { id: 5009, input: 'क-क-कपड़े गी-गीले हो गए', expected: 'कपड़े गीले हो गए।', lang: 'hindi', category: 'daily' },
+  { id: 5010, input: 'मैं थ-थ-थक गया हूँ', expected: 'मैं थक गया हूँ।', lang: 'hindi', category: 'feelings' },
+  { id: 5011, input: 'आ-आ-आज में-मैंने खा-खाना नहीं खा-खाया', expected: 'आज मैंने खाना नहीं खाया।', lang: 'hindi', category: 'daily' },
+  { id: 5012, input: 'मुझे बा-बाथरूम जा-जाना है', expected: 'मुझे बाथरूम जाना है।', lang: 'hindi', category: 'needs' },
+  { id: 5013, input: 'डॉ-डॉ-डॉक्टर को बु-बुलाओ', expected: 'डॉक्टर को बुलाओ।', lang: 'hindi', category: 'health' },
+  { id: 5014, input: 'मैं खु-खु-खुश हूँ', expected: 'मैं खुश हूँ।', lang: 'hindi', category: 'feelings' },
+  { id: 5015, input: 'मु-मुझे ड-डर लग र-रहा है', expected: 'मुझे डर लग रहा है।', lang: 'hindi', category: 'feelings' },
+
+  // Hinglish repetition & prolongation patterns
+  { id: 5101, input: 'mu-mu-mujhe pa-paani cha-chahiye', expected: 'मुझे पानी चाहिए।', lang: 'hinglish', category: 'needs' },
+  { id: 5102, input: 'muuujhe paaani chahiyee', expected: 'मुझे पानी चाहिए।', lang: 'hinglish', category: 'needs' },
+  { id: 5103, input: 'ma-mai s koo l ja-ja raha hun', expected: 'मैं स्कूल जा रहा हूँ।', lang: 'hinglish', category: 'school' },
+  { id: 5104, input: 'mujhe bh bh bhookh lagi hai', expected: 'मुझे भूख लगी है।', lang: 'hinglish', category: 'needs' },
+  { id: 5105, input: 'me-mere sir me-mein da-dard hai', expected: 'मेरे सिर में दर्द है।', lang: 'hinglish', category: 'health' },
+  { id: 5106, input: 'pa-pa-papa aa gae', expected: 'पापा आ गए।', lang: 'hinglish', category: 'family' },
+  { id: 5107, input: 'mu-mujhe da-dawai kha-khani hai', expected: 'मुझे दवाई खानी है।', lang: 'hinglish', category: 'health' },
+  { id: 5108, input: 'ba-ba-bahar ba-barish ho rahi hai', expected: 'बाहर बारिश हो रही है।', lang: 'hinglish', category: 'weather' },
+  { id: 5109, input: 'ka-ka-kapde gi-gile ho gae', expected: 'कपड़े गीले हो गए।', lang: 'hinglish', category: 'daily' },
+  { id: 5110, input: 'mai tha-tha-thak gaya hun', expected: 'मैं थक गया हूँ।', lang: 'hinglish', category: 'feelings' },
+  { id: 5111, input: 'aa-aa-aaj mai-maine kha-khana nahi kha-khaya', expected: 'आज मैंने खाना नहीं खाया।', lang: 'hinglish', category: 'daily' },
+  { id: 5112, input: 'mujhe ba-bathroom ja-jana hai', expected: 'मुझे बाथरूम जाना है।', lang: 'hinglish', category: 'needs' },
+  { id: 5113, input: 'do-do-doctor ko bu-bulao', expected: 'डॉक्टर को बुलाओ।', lang: 'hinglish', category: 'health' },
+  { id: 5114, input: 'mai khu-khu-khush hun', expected: 'मैं खुश हूँ।', lang: 'hinglish', category: 'feelings' },
+  { id: 5115, input: 'mu-mujhe da-darr lag ra-raha hai', expected: 'मुझे डर लग रहा है।', lang: 'hinglish', category: 'feelings' },
+
+  // Whisper specific distortion combinations
+  { id: 5201, input: 'मु-मु-मुझे पा-पाआनी चा-चाहिए बा-बाहर बालिच हो-हो रही है', expected: 'मुझे पानी चाहिए। बाहर बारिश हो रही है।', lang: 'hindi', category: 'complex' },
+  { id: 5202, input: 'त-त-तपले दीले हो-हो गए', expected: 'कपड़े गीले हो गए।', lang: 'hindi', category: 'complex' },
+  { id: 5203, input: 'तू-ततूल दा-दाना था ले-लेकिन बा-बालिच हो गई', expected: 'स्कूल जाना था लेकिन बारिश हो गई।', lang: 'hindi', category: 'complex' },
+  { id: 5204, input: 'पे-पेट ब-बला हुआ है मु-मुझे था-थाना नहीं था-थाना', expected: 'पेट भरा हुआ है, मुझे खाना नहीं खाना।', lang: 'hindi', category: 'complex' },
+  { id: 5205, input: 'मै-मैंने ए-एक मु-मूवी दे-देखी', expected: 'मैंने एक मूवी देखी।', lang: 'hindi', category: 'complex' }
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Keep backward-compatible exports (old code references these)
 // ─────────────────────────────────────────────────────────────────────────────
 

@@ -1,11 +1,11 @@
-import { parseJsonResponse } from './apiUtils';
+import { parseJsonResponse, getApiUrl } from './apiUtils';
 import { getCorrectionPayload } from './corrections';
 import { getPronunciationPayload } from './pronunciation';
 
 export async function correctHindi(text: string, scenarioContext: string = ''): Promise<string> {
   if (!text.trim()) return text;
 
-  const response = await fetch('/api/correct', {
+  const response = await fetch(getApiUrl('/api/correct'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({

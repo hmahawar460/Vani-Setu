@@ -7,12 +7,25 @@
  * These rules fix unambiguous character-level issues that the LLM sometimes
  * misses, plus known Whisper mis-transcriptions for impaired speech.
  *
- * Section 1: General phonetic fixes (anusvara, common typos)
- * Section 2: Whisper-specific mis-transcriptions (full-word anchored, safe)
+ * Section 1: Stammerer Pattern Pre-cleaning
+ * Section 2: General phonetic fixes (anusvara, common typos)
+ * Section 3: Whisper-specific mis-transcriptions (full-word anchored, safe)
  */
 
 const RULES = [
-  // ── Section 1: Missing anusvara / common phonetic fixes ───────────────
+  // ── Section 1: Stammerer Pattern Pre-cleaning ────────────────────────
+  // Handle some common static repetition fragments that the regex might miss
+  [/\bमु-मु\b/g, 'मु'],
+  [/\bमु-मुझे\b/g, 'मुझे'],
+  [/\bपा-पा\b/g, 'पा'],
+  [/\bपा-पानी\b/g, 'पानी'],
+  [/\bचा-चा\b/g, 'चा'],
+  [/\bचा-चाहिए\b/g, 'चाहिए'],
+  [/\bखा-खा\b/g, 'खा'],
+  [/\bजा-जा\b/g, 'जा'],
+  [/\bबा-बा\b/g, 'बा'],
+
+  // ── Section 2: Missing anusvara / common phonetic fixes ───────────────
   [/\bनही\b/g,    'नहीं'],
   [/\bनींद\b/g,   'नींद'],
   [/\bजाऊगा\b/g,  'जाऊंगा'],

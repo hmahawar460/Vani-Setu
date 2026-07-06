@@ -1,6 +1,6 @@
-# Whisper Flow
+# वाणी सेतु (Vani Setu)
 
-**Live Demo:** [https://wisperflow-blue.vercel.app/](https://wisperflow-blue.vercel.app/)
+**Live Demo:** [वाणी सेतु (Vani Setu)](https://wisperflow-blue.vercel.app/)
 
 Turn unclear speech into clean, grammatically corrected text — then speak it aloud.
 

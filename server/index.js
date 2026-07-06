@@ -38,6 +38,9 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 
 
 const PORT         = process.env.PORT || 3001;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const USE_LOCAL    = process.env.USE_LOCAL_MODEL === 'true';
+const OLLAMA_URL   = process.env.OLLAMA_URL || 'http://localhost:11434';
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.1:8b';
 
 // In-flight deduplication: if same text is being corrected concurrently,
 // share one LLM call instead of making N identical calls
@@ -46,7 +49,7 @@ const inFlight = new Map();
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 
-// Groq fetch with retry on 429 rate limit
+// Groq fetch with retry on 429 rate limit and 15s per-call timeout
 async function groqFetch(url, options, maxRetries = 3) {
   let lastError;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
@@ -54,7 +57,11 @@ async function groqFetch(url, options, maxRetries = 3) {
       await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
     }
     try {
-      const r = await fetch(url, options);
+      // 25s timeout per individual Groq call — prevents hanging on slow responses
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 25000);
+      const r = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timer);
       if (r.status === 429) {
         const retryAfter = parseInt(r.headers.get('retry-after') || '2', 10);
         await new Promise(res => setTimeout(res, retryAfter * 1000));
@@ -64,9 +71,67 @@ async function groqFetch(url, options, maxRetries = 3) {
       return r;
     } catch (err) {
       lastError = err;
+      if (err.name === 'AbortError') {
+        console.warn(`[groq] call timed out (attempt ${attempt + 1})`);
+      }
     }
   }
   throw lastError;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Ollama local model support
+// ─────────────────────────────────────────────────────────────────────────────
+async function ollamaChat(systemPrompt, userMessage, maxTokens = 512) {
+  const r = await fetch(`${OLLAMA_URL}/api/chat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: OLLAMA_MODEL,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+      stream: false,
+      options: { temperature: 0, num_predict: maxTokens },
+    }),
+  });
+  if (!r.ok) throw new Error(`Ollama error: ${await r.text()}`);
+  const d = await r.json();
+  return d.message?.content?.trim() ?? '';
+}
+
+/** Unified LLM call — routes to Ollama if USE_LOCAL_MODEL=true, else Groq */
+async function llmChat(systemPrompt, userMessage, maxTokens = 512) {
+  if (USE_LOCAL) {
+    console.log(`[llm] using local Ollama (${OLLAMA_MODEL})`);
+    return ollamaChat(systemPrompt, userMessage, maxTokens);
+  }
+
+  const r = await groqFetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userMessage },
+      ],
+      temperature: 0,
+      max_tokens: maxTokens,
+    }),
+  });
+
+  if (!r.ok) {
+    const detail = await r.text();
+    throw new Error(`Groq error: ${detail}`);
+  }
+
+  const d = await r.json();
+  return d.choices?.[0]?.message?.content?.trim() ?? '';
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -172,172 +237,172 @@ async function runLLMCorrection(rawText, preProcessed, corrections = [], pronunc
   const pronHints    = getPronunciationHintsForLLM(pronunciation);
   const hinglishHints = getHinglishHintsForLLM(30);
 
-  // Build the few-shot examples block from saved paragraph corrections
-  let exampleBlock = '';
-  if (paraExamples.length > 0) {
-    exampleBlock = '\n\nपिछले सुधारों के उदाहरण (इन्हें संदर्भ के रूप में उपयोग करो):\n';
-    for (const ex of paraExamples) {
-      exampleBlock += `गलत: "${ex.raw}"\nसही: "${ex.corrected}"\n\n`;
-    }
-  }
-
-  let lookupBlock = '';
-  if (wordLookup) {
-    lookupBlock = `\n\nज्ञात शब्द सुधार (इन्हें पहली प्राथमिकता दो): ${wordLookup}`;
-  }
-
-  let pronBlock = '';
-  if (pronHints) {
-    pronBlock = `\n\nइस व्यक्ति की उच्चारण प्रोफ़ाइल (अक्षर/वर्ण परीक्षा से): ${pronHints}`;
-  }
-
-  let contextBlock = '';
-  if (expectedContext) {
-    contextBlock = `\n\nसंदर्भ वाक्य (शब्द-दर-शब्द मिलान): "${expectedContext}"`;
-  }
-
-  let scenarioBlock = '';
-  if (scenarioContext) {
-    scenarioBlock = `🔴 MOST IMPORTANT — READ THIS FIRST:
-The other person asked: "${scenarioContext}"
-The user is answering THIS question. Use the question's topic to determine what the user is trying to say.
-
-Topic analysis:
-- If the question is about a MOVIE/FILM → user is talking about a movie. Words like "जोई", "जॉय", "जोय", "डोई" etc. are likely MOVIE NAMES, not random words.
-- If the question is about FOOD → user is talking about food.
-- If the question is about SCHOOL/PLACE → user is talking about going somewhere.
-- DO NOT interpret words as food/water/pain if the question is clearly about something else.
-
-For this specific question "${scenarioContext}":
-- The answer MUST be related to: ${getTopicFromScenario(scenarioContext)}
-- Any word that doesn't fit this topic — try to interpret it as a name/term related to the topic first.
-
-`;
-  }
-
   // Calculate allowed word count range for the output
   const inputWordCount = countWords(rawText);
   const maxOutputWords = Math.max(Math.ceil(inputWordCount * 1.2), inputWordCount + 4);
 
-  const systemPrompt =
-`${scenarioBlock}तुम एक AAC (Augmentative and Alternative Communication) सहायक हो।
-तुम उन लोगों की मदद करते हो जिन्हें बोलने में कठिनाई है — सेरेब्रल पाल्सी, डिसार्थ्रिया, मूकता।
+  // ── Build prompt with EQUAL-PRIORITY sections ─────────────────────────
+  // Each section is wrapped in XML-style tags so the LLM gives equal
+  // attention to ALL workflow steps, not just the first/last.
 
-⚠️ शब्द सीमा (बहुत महत्वपूर्ण):
-- इनपुट में लगभग ${inputWordCount} शब्द हैं।
-- आउटपुट में अधिकतम ${maxOutputWords} शब्द होने चाहिए।
-- अगर उपयोगकर्ता 2 शब्द बोले → 2-4 शब्दों में जवाब दो।
-- अगर उपयोगकर्ता 10 शब्द बोले → 10-12 शब्दों में जवाब दो।
-- अगर उपयोगकर्ता 100 शब्द बोले → 100-120 शब्दों में जवाब दो।
-- कभी भी इस सीमा से बाहर मत जाओ — यह नियम सबसे कड़ा है।
+  // SECTION 1 (TOP PRIORITY): Role + strict constraints
+  let prompt = `तुम एक AAC (Augmentative and Alternative Communication) सहायक हो।
+तुम उन लोगों की मदद करते हो जिन्हें बोलने में कठिनाई है — सेरेब्रल पाल्सी, डिसार्थ्रिया, हकलाना, मूकता।
 
-इनपुट तीन प्रकार का हो सकता है:
-A) Whisper से निकला टूटा-फूटा हिंदी देवनागरी टेक्स्ट
-B) Hinglish / Roman Hindi
-C) दोनों का मिश्रण
+🔒 सभी नियम समान प्राथमिकता के हैं। कोई भी नियम दूसरे से ऊपर नहीं है।
+हर अनुभाग को ध्यान से पढ़ो और सभी चरणों को बराबर महत्व दो।
 
-──────────────────────────────────────────
-⚠️ ज्ञात Whisper गलतियाँ (इन्हें हमेशा सुधारो):
-- "तूल" / "ततूल" = "स्कूल"
-- "बालिच" / "बालिश" = "बारिश"
-- "तूकी" / "इतली" / "इसली" = "इसलिए"
-- "दई" = "गई", "दए" = "गए", "दा" = "जा"
-- "तपले" = "कपड़े", "दीले" = "गीले"
-- "थाना" / "थाने" = "खाने" (खाने के संदर्भ में)
-- "था लिया" / "था ली" = "खा लिया" (खाने के बाद की बात हो तो)
-- "बला" / "बला हुआ" = "भरा" / "भरा हुआ" (पेट के संदर्भ में — पेट भरा)
-- "मेला" = "मेरा"
-- "पिलात्ता" / "पिलात" = "इसलिए"
-- "डालना"/"डाला" = "जाना"/"गया" (जगह के संदर्भ में)
-- "दोल" = "रो", "देल" = "देर"
-- "आद" / "आदि" = "आज"
+<WORD_LIMIT>
+⚠️ शब्द सीमा:
+- इनपुट: ~${inputWordCount} शब्द → आउटपुट: अधिकतम ${maxOutputWords} शब्द।
+- 2 शब्द इनपुट → 2-4 शब्द आउटपुट। 10 शब्द → 10-12। 100 शब्द → 100-120।
+- इस सीमा का उल्लंघन कभी न करो।
+</WORD_LIMIT>
+`;
 
-──────────────────────────────────────────
-विशेष उदाहरण (इसी प्रकार सोचो):
-इनपुट: "नहीं आज मेला पेट बला हुआ है। मैंने था लिया है। पिलात्ता थाना इतली नहीं दा पाऊंगा।"
-संदर्भ: "आज खाने चलोगे क्या?"
-सही आउटपुट: "नहीं, आज मेरा पेट भरा हुआ है। मैंने खा लिया है। इसलिए मैं खाने नहीं जा पाऊंगा।"
-व्याख्या: "बला"→"भरा" (खाने का सवाल था इसलिए पेट भरा होना सही), "था लिया"→"खा लिया" (खाना खा चुका है), "पिलात्ता थाना इतली नहीं दा"→"इसलिए खाने नहीं जा"
+  // SECTION 2 (HIGH PRIORITY): User-specific corrections — placed early for strong attention
+  if (wordLookup) {
+    prompt += `
+<USER_CORRECTIONS>
+🔴 इस व्यक्ति के ज्ञात शब्द सुधार (हमेशा लागू करो):
+${wordLookup}
+</USER_CORRECTIONS>
+`;
+  }
 
-──────────────────────────────────────────
+  if (pronHints) {
+    prompt += `
+<PRONUNCIATION_PROFILE>
+🔴 इस व्यक्ति की उच्चारण प्रोफ़ाइल (अक्षर/वर्ण परीक्षा से पता चला):
+${pronHints}
+</PRONUNCIATION_PROFILE>
+`;
+  }
+
+  // SECTION 3: Few-shot examples from user's history
+  if (paraExamples.length > 0) {
+    prompt += `
+<PAST_CORRECTIONS>
+पिछले सुधारों के उदाहरण:
+`;
+    for (const ex of paraExamples) {
+      prompt += `गलत: "${ex.raw}" → सही: "${ex.corrected}"\n`;
+    }
+    prompt += `</PAST_CORRECTIONS>
+`;
+  }
+
+  // SECTION 4 (EQUAL PRIORITY): Known Whisper errors & stammerer patterns
+  prompt += `
+<WHISPER_ERRORS>
+ज्ञात Whisper गलतियाँ (इन्हें हमेशा सुधारो):
+- "तूल"/"ततूल" = "स्कूल", "बालिच"/"बालिश" = "बारिश"
+- "तूकी"/"इतली"/"इसली" = "इसलिए", "दई" = "गई", "दए" = "गए", "दा" = "जा"
+- "तपले" = "कपड़े", "दीले" = "गीले", "मेला" = "मेरा"
+- "थाना"/"थाने" = "खाने", "था लिया" = "खा लिया"
+- "बला"/"बला हुआ" = "भरा"/"भरा हुआ", "पिलात्ता" = "इसलिए"
+- "डालना"/"डाला" = "जाना"/"गया", "दोल" = "रो", "देल" = "देर"
+- "आद"/"आदि" = "आज", "तोशू" = "खुश", "तज़ी" = "सिर"
+
+हकलाने वालों की विशेष गलतियाँ:
+- दोहराव: "मु-मुझे" = "मुझे", "पा-पानी" = "पानी"
+- लंबा स्वर: "पाआनी" = "पानी", "मुउउझे" = "मुझे"
+- टूटे शब्द: "स् कू ल" = "स्कूल"
+</WHISPER_ERRORS>
+`;
+
+  // SECTION 5 (EQUAL PRIORITY): Scenario context — placed in MIDDLE, not at top
+  if (scenarioContext) {
+    prompt += `
+<SCENARIO_CONTEXT>
+बातचीत का संदर्भ — दूसरे व्यक्ति ने पूछा: "${scenarioContext}"
+विषय: ${getTopicFromScenario(scenarioContext)}
+
+इस संदर्भ का उपयोग अस्पष्ट शब्दों का अर्थ तय करने में करो।
+लेकिन ज्ञात शब्द सुधार और उच्चारण प्रोफ़ाइल को संदर्भ से ऊपर रखो।
+अगर प्रश्न फिल्म के बारे में है → अज्ञात शब्द फिल्म का नाम हो सकते हैं।
+अगर प्रश्न खाने के बारे में है → अज्ञात शब्द खाने से संबंधित हो सकते हैं।
+</SCENARIO_CONTEXT>
+`;
+  }
+
+  if (expectedContext) {
+    prompt += `
+<EXPECTED_CONTEXT>
+संदर्भ वाक्य (शब्द-दर-शब्द मिलान): "${expectedContext}"
+</EXPECTED_CONTEXT>
+`;
+  }
+
+  // SECTION 6: Hinglish hints
+  prompt += `
+<HINGLISH>
 Hinglish शब्द पहचान:
 ${hinglishHints}
+</HINGLISH>
+`;
 
-──────────────────────────────────────────
-सोचने की प्रक्रिया:
+  // SECTION 7: Worked example
+  prompt += `
+<EXAMPLE>
+उदाहरण:
+इनपुट: "नहीं आज मेला पेट बला हुआ है। मैंने था लिया है। पिलात्ता थाना इतली नहीं दा पाऊंगा।"
+संदर्भ: "आज खाने चलोगे क्या?"
+सही: "नहीं, आज मेरा पेट भरा हुआ है। मैंने खा लिया है। इसलिए मैं खाने नहीं जा पाऊंगा।"
+</EXAMPLE>
+`;
 
-चरण 1 — बातचीत का संदर्भ देखो (सबसे पहले):
-अगर ऊपर संदर्भ दिया गया है तो उसके अनुसार शब्दों का अर्थ तय करो।
+  // SECTION 8: Equal-weight workflow steps
+  prompt += `
+<WORKFLOW>
+⚠️ सभी चरण समान महत्व के हैं — कोई चरण छोड़ो नहीं:
 
-चरण 2 — ज्ञात Whisper गलतियाँ ठीक करो।
-
+चरण 1 — USER_CORRECTIONS और PRONUNCIATION_PROFILE लागू करो (सबसे भरोसेमंद)।
+चरण 2 — WHISPER_ERRORS सुधारो। हकलाने के दोहराव हटाओ।
 चरण 3 — Hinglish → देवनागरी।
-
-चरण 4 — पड़ोसी शब्दों के संदर्भ में सुधारो:
-हर शब्द को उसके आगे-पीछे के शब्दों से जोड़कर देखो।
-
-चरण 5 — व्याकरण ठीक करो।
-
-चरण 6 — अधूरे वाक्य पूरे करो।
-──────────────────────────────────────────
+चरण 4 — SCENARIO_CONTEXT से अस्पष्ट शब्दों का अर्थ तय करो।
+चरण 5 — पड़ोसी शब्दों के संदर्भ में सुधारो।
+चरण 6 — व्याकरण ठीक करो। अधूरे वाक्य पूरे करो।
+</WORKFLOW>
 
 कड़े नियम:
 - उत्तर केवल हिंदी देवनागरी में।
 - मूल भावना बिल्कुल न बदलो।
-- कोई व्याख्या या लेबल नहीं।${lookupBlock}${pronBlock}${contextBlock}${exampleBlock}`;
+- कोई व्याख्या या लेबल नहीं। सिर्फ सुधरा हुआ टेक्स्ट लिखो।
+`;
 
   // Send BOTH the raw Whisper output AND the pre-processed version.
-  // The LLM uses raw for phonetic clues and pre-processed for DB corrections.
   const userMessage = rawText === preProcessed
     ? rawText
     : `मूल (Whisper आउटपुट): "${rawText}"\nआंशिक सुधार: "${preProcessed}"\n\nकृपया पूरा सुधार करो।`;
 
-  const r = await groqFetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user',   content: userMessage },
-      ],
-      temperature: 0,   // 0 = maximum determinism and accuracy for correction
-      max_tokens: 512,
-    }),
-  });
-
-  if (!r.ok) {
-    const detail = await r.text();
-    throw new Error(`Groq error: ${detail}`);
-  }
-
-  const d = await r.json();
-  const raw = d.choices?.[0]?.message?.content?.trim() ?? preProcessed;
-  // Apply word-count constraint to prevent hallucination
-  const result = enforceWordLimit(rawText, raw);
-  console.log(`[correct] LLM result: "${result}"`);
-  return result;
+  const result = await llmChat(prompt, userMessage, 512);
+  const limited = enforceWordLimit(rawText, result || preProcessed);
+  console.log(`[correct] LLM result: "${limited}"`);
+  return limited;
 }
 
 /** Final pass: verify paragraph makes sense; fix words using prev/next context */
 async function runParagraphSenseCheck(rawText, currentText, corrections = [], pronunciation = [], expectedContext = null, scenarioContext = null) {
-  const userCorrections = normalizeCorrections(corrections);
   const pronHints = getPronunciationHintsForLLM(pronunciation);
 
   const systemPrompt =
 `तुम AAC सहायक हो। दिया गया हिंदी वाक्य/पैराग्राफ पढ़ो और जाँचो कि क्या यह समझ में आता है।
 
-काम:
+⚠️ सभी नियम समान प्राथमिकता के हैं:
+
+<RULES>
 1. हर शब्द को उसके पिछले और अगले शब्दों के साथ जोड़कर देखो — शब्द आपस में जुड़े होने चाहिए।
 2. अगर कोई शब्द अर्थहीन है, उसे संदर्भ के अनुसार सही शब्द से बदलो।
-3. अधूरा वाक्य हो तो उपयोगकर्ता के संदर्भ (खाना, पानी, दर्द, मदद, स्कूल) से पूरा करो।
+3. हकलाने/दोहराव को हटाओ: "मु-मुझे" → "मुझे"
 4. Hinglish/Roman शब्द बचे हों तो उन्हें देवनागरी में बदलो।
-5. मूल भावना न बदलो। केवल देवनागरी में उत्तर दो — कोई व्याख्या नहीं।
+5. अधूरा वाक्य हो तो संदर्भ से पूरा करो।
+6. मूल भावना न बदलो। केवल देवनागरी में उत्तर दो — कोई व्याख्या नहीं।
+</RULES>
 
-⚠️ ज्ञात Whisper गलतियाँ: "तूल"=स्कूल, "बालिच"=बारिश, "तूकी"=क्योंकि, "दई"=गई, "तपले"=कपड़े, "दीले"=गीले, "तोशू"=खुश${pronHints ? `\n\nउच्चारण प्रोफ़ाइल: ${pronHints}` : ''}${expectedContext ? `\n\nलक्ष्य संदर्भ: "${expectedContext}"` : ''}${scenarioContext ? `\n\nकेयरगिवर का संदर्भ: "${scenarioContext}"` : ''}`;
+<WHISPER_ERRORS>
+ज्ञात गलतियाँ: "तूल"=स्कूल, "बालिच"=बारिश, "तूकी"=क्योंकि, "दई"=गई, "तपले"=कपड़े, "दीले"=गीले, "तोशू"=खुश
+</WHISPER_ERRORS>${pronHints ? `\n\n<PRONUNCIATION>\nउच्चारण प्रोफ़ाइल: ${pronHints}\n</PRONUNCIATION>` : ''}${expectedContext ? `\n\n<EXPECTED>\nलक्ष्य संदर्भ: "${expectedContext}"\n</EXPECTED>` : ''}${scenarioContext ? `\n\n<SCENARIO>\nकेयरगिवर का संदर्भ: "${scenarioContext}"\n</SCENARIO>` : ''}`;
 
   const userMessage =
 `मूल Whisper: "${rawText}"
@@ -345,29 +410,14 @@ async function runParagraphSenseCheck(rawText, currentText, corrections = [], pr
 
 पूरे पैराग्राफ की समझ जाँचो। गलत/असंबद्ध शब्द सही करो। पिछले-अगले शब्दों से जोड़कर पूरा सार्थक वाक्य दो।`;
 
-  const r = await groqFetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-      ],
-      temperature: 0,
-      max_tokens: 512,
-    }),
-  });
-
-  if (!r.ok) return currentText;
-
-  const d = await r.json();
-  const result = d.choices?.[0]?.message?.content?.trim() ?? currentText;
-  console.log(`[sense-check] "${result}"`);
-  return result;
+  try {
+    const result = await llmChat(systemPrompt, userMessage, 512);
+    if (!result) return currentText;
+    console.log(`[sense-check] "${result}"`);
+    return result;
+  } catch {
+    return currentText;
+  }
 }
 
 /**
@@ -385,77 +435,108 @@ async function runContextConfirmation(rawText, currentText, scenarioContext, exp
   const systemPrompt =
 `तुम AAC सहायक हो। नीचे एक वाक् विकलांग व्यक्ति का सुधरा हुआ उत्तर है।
 ${contextLine}
-जाँचो: क्या यह उत्तर ऊपर के प्रश्न के जवाब में सही और प्रासंगिक है?
+<RULES>
+सभी नियम समान प्राथमिकता:
+1. अगर उत्तर सही है → बिल्कुल वैसा ही लिखो, कोई बदलाव नहीं।
+2. अगर उत्तर सवाल से असंबंधित है → केवल ज़रूरी शब्द बदलो।
+3. अधिकतम ${maxWords} शब्द।
+4. केवल हिंदी देवनागरी। कोई व्याख्या नहीं। सिर्फ उत्तर लिखो।
+</RULES>`;
 
-नियम:
-- अगर उत्तर सही है → बिल्कुल वैसा ही लिखो, कोई बदलाव नहीं।
-- अगर उत्तर सवाल से असंबंधित है → केवल ज़रूरी शब्द बदलो।
-- अधिकतम ${maxWords} शब्द।
-- केवल हिंदी देवनागरी। कोई व्याख्या नहीं। सिर्फ उत्तर लिखो।`;
+  try {
+    const result = await llmChat(systemPrompt, currentText, 200);
 
-  const r = await groqFetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: currentText },
-      ],
-      temperature: 0,
-      max_tokens: 200,
-    }),
-  });
+    // Safety: meta-commentary detection
+    const isMetaResponse = /^(हाँ|नहीं)[,،]?\s*(यह|यह उत्तर|उत्तर)/i.test(result);
+    if (!result || isMetaResponse) {
+      console.log(`[confirm] discarded meta-response, keeping: "${currentText}"`);
+      return currentText;
+    }
 
-  if (!r.ok) return currentText;
+    // Safety: over-simplification detection
+    const currentWordCount = countWords(currentText);
+    const resultWordCount  = countWords(result);
+    if (currentWordCount > 4 && resultWordCount < currentWordCount * 0.7) {
+      console.log(`[confirm] result too short (${resultWordCount} vs ${currentWordCount}), keeping original`);
+      return currentText;
+    }
 
-  const d = await r.json();
-  const result = (d.choices?.[0]?.message?.content ?? '').trim();
-
-  // Safety: if result looks like meta-commentary (contains "उत्तर", "सवाल", "यह"),
-  // it means the model explained instead of answering — discard and use current
-  const isMetaResponse = /^(हाँ|नहीं)[,،]?\s*(यह|यह उत्तर|उत्तर)/i.test(result);
-  if (!result || isMetaResponse) {
-    console.log(`[confirm] discarded meta-response, keeping: "${currentText}"`);
+    console.log(`[confirm] "${result}"`);
+    return result;
+  } catch {
     return currentText;
   }
+}
 
-  // Safety: if result is significantly shorter than current (>30% shorter),
-  // the model over-simplified — discard and keep current
-  const currentWordCount = countWords(currentText);
-  const resultWordCount  = countWords(result);
-  if (currentWordCount > 4 && resultWordCount < currentWordCount * 0.7) {
-    console.log(`[confirm] result too short (${resultWordCount} vs ${currentWordCount}), keeping original`);
-    return currentText;
+// ─────────────────────────────────────────────────────────────────────────────
+// Macro Pre/Post Processing
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Pre-LLM macro: apply ALL local corrections in deterministic order */
+function macroPreProcess(rawText, userCorrections, pronProfile) {
+  // 1. Hinglish transliteration
+  let text = transliterateHinglish(rawText);
+  if (text !== rawText) {
+    console.log(`[macro-pre] Hinglish→Devanagari: "${rawText}" → "${text}"`);
   }
 
-  console.log(`[confirm] "${result}"`);
-  return result;
+  // 2. Remove stammerer repetitions: "मु-मुझे" → "मुझे", "पा-पानी" → "पानी"
+  text = text.replace(/([\u0900-\u097F]{1,3})-\1/g, '$1');
+  // Remove prolonged vowels: "पाआनी" → "पानी" (repeated vowel marks)
+  text = text.replace(/([\u093E-\u094C])\1+/g, '$1');
+
+  // 3. DB word/phrase corrections
+  text = applyCorrections(text, userCorrections);
+
+  // 4. Pronunciation profile
+  text = applyPronunciationProfile(text, pronProfile);
+
+  // 5. Phonetic rules
+  text = applyPhoneticRules(text);
+
+  return text;
+}
+
+/** Post-LLM macro: re-apply critical corrections to catch LLM regression */
+function macroPostProcess(llmOutput, userCorrections, pronProfile) {
+  let text = llmOutput;
+
+  // Re-apply phonetic rules (LLM sometimes re-introduces errors)
+  text = applyPhoneticRules(text);
+
+  // Re-apply stammerer pattern cleanup
+  text = text.replace(/([\u0900-\u097F]{1,3})-\1/g, '$1');
+  text = text.replace(/([\u093E-\u094C])\1+/g, '$1');
+
+  return text;
+}
+
+/** Calculate word-level overlap between two texts (0-100) */
+function wordOverlap(a, b) {
+  const wordsA = a.trim().split(/\s+/).filter(Boolean);
+  const wordsB = b.trim().split(/\s+/).filter(Boolean);
+  if (!wordsA.length || !wordsB.length) return 0;
+  const setB = new Set(wordsB.map(w => w.toLowerCase()));
+  let matched = 0;
+  for (const w of wordsA) {
+    if (setB.has(w.toLowerCase())) matched++;
+  }
+  return Math.round((matched / Math.max(wordsA.length, wordsB.length)) * 100);
 }
 
 async function runCorrectionPipeline(rawText, corrections, pronunciation, expectedContext = null, scenarioContext = null) {
   const userCorrections = normalizeCorrections(corrections);
   const pronProfile = normalizePronunciationProfile(pronunciation);
 
-  // Step 0: Hinglish transliteration (Roman Hindi → Devanagari)
-  const afterHinglish = transliterateHinglish(rawText);
-  if (afterHinglish !== rawText) {
-    console.log(`[correct] Hinglish→Devanagari: "${rawText}" → "${afterHinglish}"`);
-  }
+  // ── Pre-LLM Macro Pass ─────────────────────────────────────────────────
+  const preProcessed = macroPreProcess(rawText, userCorrections, pronProfile);
 
-  const afterDB       = applyCorrections(afterHinglish, userCorrections);
-  const afterPron     = applyPronunciationProfile(afterDB, pronProfile);
-  const afterPhonetic = applyPhoneticRules(afterPron);
-
-  let aligned = afterPhonetic;
+  let aligned = preProcessed;
   if (expectedContext) {
-    aligned = alignWithContext(afterPhonetic, expectedContext, userCorrections, pronProfile);
+    aligned = alignWithContext(preProcessed, expectedContext, userCorrections, pronProfile);
   }
 
-  // Step 1: LLM correction (word-count constrained)
+  // ── Step 1: LLM correction (word-count constrained) ────────────────────
   let final = aligned;
   try {
     final = await runLLMCorrection(rawText, aligned, userCorrections, pronProfile, expectedContext, scenarioContext);
@@ -463,22 +544,31 @@ async function runCorrectionPipeline(rawText, corrections, pronunciation, expect
     console.error('[correct] LLM failed:', llmErr.message);
   }
 
-  // Step 2: Para sense-check — Run TWICE for higher accuracy
-  // First pass: fix any remaining broken words using prev/next context
-  try {
-    final = await runParagraphSenseCheck(rawText, final, userCorrections, pronProfile, expectedContext, scenarioContext);
-    final = enforceWordLimit(rawText, final);
-  } catch (e) {
-    console.error('[correct] sense-check pass 1 failed:', e.message);
+  // ── Post-LLM Macro Pass ────────────────────────────────────────────────
+  final = macroPostProcess(final, userCorrections, pronProfile);
+
+  // ── Confidence check: skip expensive passes if pre/post are very similar
+  const overlap = wordOverlap(preProcessed, final);
+  console.log(`[correct] pre→post overlap: ${overlap}%`);
+
+  // ── Step 2: Para sense-check (skip if overlap > 90%) ──────────────────
+  if (overlap <= 90) {
+    try {
+      final = await runParagraphSenseCheck(rawText, final, userCorrections, pronProfile, expectedContext, scenarioContext);
+      final = enforceWordLimit(rawText, final);
+      final = macroPostProcess(final, userCorrections, pronProfile);
+    } catch (e) {
+      console.error('[correct] sense-check failed:', e.message);
+    }
   }
 
-  // Second pass: context confirmation — only run if input is >3 words
-  // (short inputs like "पानी" don't need confirmation, it causes more harm)
+  // ── Step 3: Context confirmation (only for multi-word with context) ───
   const inputWords = countWords(rawText);
-  if (inputWords > 3 && (scenarioContext || expectedContext)) {
+  if (inputWords > 3 && (scenarioContext || expectedContext) && overlap <= 90) {
     try {
       final = await runContextConfirmation(rawText, final, scenarioContext, expectedContext);
       final = enforceWordLimit(rawText, final);
+      final = macroPostProcess(final, userCorrections, pronProfile);
     } catch (e) {
       console.error('[correct] context confirmation failed:', e.message);
     }
@@ -500,7 +590,7 @@ async function runCorrectionPipeline(rawText, corrections, pronunciation, expect
 //  3. LLM context-aware correction (Groq, paragraph-aware, DB-informed)
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/api/correct', rateLimit(30), async (req, res) => {
-  if (!GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY सेट नहीं है।' });
+  if (!GROQ_API_KEY && !USE_LOCAL) return res.status(500).json({ error: 'GROQ_API_KEY सेट नहीं है।' });
 
   const { text, corrections, pronunciation, scenarioContext } = req.body ?? {};
   if (!text?.trim()) return res.json({ text: text ?? '' });
@@ -688,7 +778,7 @@ app.post('/api/test/evaluate', async (req, res) => {
 // Body: { text } — runs the correction pipeline and returns the result
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/api/test/model', async (req, res) => {
-  if (!GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY is not set.' });
+  if (!GROQ_API_KEY && !USE_LOCAL) return res.status(500).json({ error: 'GROQ_API_KEY is not set.' });
 
   const { text, expected, corrections, pronunciation } = req.body ?? {};
   if (!text?.trim()) return res.status(400).json({ error: 'text is required' });
@@ -715,6 +805,85 @@ app.post('/api/test/model', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/test/accuracy — Batch accuracy test across all datasets
+// Runs stammerer + standard datasets, reports per-language accuracy
+// ─────────────────────────────────────────────────────────────────────────────
+import {
+  STAMMERER_DATASET,
+  SENTENCE_DATASET,
+} from './testDataset.js';
+
+app.post('/api/test/accuracy', async (req, res) => {
+  if (!GROQ_API_KEY && !USE_LOCAL) return res.status(500).json({ error: 'No model configured.' });
+
+  const datasets = {
+    stammerer_hindi: STAMMERER_DATASET.filter(d => d.lang === 'hindi'),
+    stammerer_hinglish: STAMMERER_DATASET.filter(d => d.lang === 'hinglish'),
+    sentences_hindi: SENTENCE_DATASET.map(s => ({ input: s.hinglish, expected: s.hindi, lang: 'hinglish', category: s.category })),
+  };
+
+  const results = {};
+  let totalCorrect = 0;
+  let totalTests = 0;
+
+  for (const [name, dataset] of Object.entries(datasets)) {
+    const details = [];
+    let passed = 0;
+
+    for (const item of dataset) {
+      try {
+        const corrected = await runCorrectionPipeline(
+          item.input,
+          [],
+          [],
+          item.expected,
+        );
+        const score = scoreWordAlignment(item.expected, corrected);
+        const pass = score >= 60;
+        if (pass) { passed++; totalCorrect++; }
+        totalTests++;
+
+        details.push({
+          input: item.input,
+          expected: item.expected,
+          corrected,
+          score,
+          pass,
+          category: item.category,
+        });
+      } catch (err) {
+        totalTests++;
+        details.push({
+          input: item.input,
+          expected: item.expected,
+          corrected: null,
+          score: 0,
+          pass: false,
+          error: err.message,
+        });
+      }
+    }
+
+    results[name] = {
+      total: dataset.length,
+      passed,
+      accuracy: dataset.length ? Math.round((passed / dataset.length) * 100) : 0,
+      details,
+    };
+  }
+
+  res.json({
+    overall: {
+      total: totalTests,
+      passed: totalCorrect,
+      accuracy: totalTests ? Math.round((totalCorrect / totalTests) * 100) : 0,
+    },
+    byDataset: results,
+    model: USE_LOCAL ? `ollama:${OLLAMA_MODEL}` : 'groq:llama-3.3-70b-versatile',
+  });
+});
+
 app.get('/api/corrections', (_req, res) => {
   res.json({ corrections: [] });
 });
@@ -736,8 +905,10 @@ if (!process.env.VERCEL && fs.existsSync(distPath)) {
 if (!process.env.VERCEL) {
 app.listen(PORT, () => {
   console.log(`✅  Server on http://localhost:${PORT}`);
-  console.log(`    Model: llama-3.3-70b-versatile | Pipeline: Hinglish → DB → Phonetic → LLM`);
-  if (!GROQ_API_KEY) console.warn('⚠️  GROQ_API_KEY not set');
+  const modelName = USE_LOCAL ? `Ollama (${OLLAMA_MODEL})` : 'Groq llama-3.3-70b-versatile';
+  console.log(`    Model: ${modelName} | Pipeline: Macro→Hinglish→DB→Phonetic→LLM→PostMacro`);
+  if (!GROQ_API_KEY && !USE_LOCAL) console.warn('⚠️  No model configured — set GROQ_API_KEY or USE_LOCAL_MODEL=true');
+  if (USE_LOCAL) console.log(`    Ollama URL: ${OLLAMA_URL}`);
 });
 }
 
