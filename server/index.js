@@ -245,136 +245,30 @@ async function runLLMCorrection(rawText, preProcessed, corrections = [], pronunc
   // Each section is wrapped in XML-style tags so the LLM gives equal
   // attention to ALL workflow steps, not just the first/last.
 
-  // SECTION 1 (TOP PRIORITY): Role + strict constraints
-  let prompt = `तुम एक AAC (Augmentative and Alternative Communication) सहायक हो।
-तुम उन लोगों की मदद करते हो जिन्हें बोलने में कठिनाई है — सेरेब्रल पाल्सी, डिसार्थ्रिया, हकलाना, मूकता।
+  // Compact prompt — all features, minimal tokens
+  const scenarioLine = scenarioContext 
+    ? `\n🔴 संदर्भ: "${scenarioContext}" → विषय: ${getTopicFromScenario(scenarioContext)}\nइस विषय से संबंधित शब्द ही सुझाओ।`
+    : '';
+  const userCorrLine = wordLookup ? `\nज्ञात सुधार: ${wordLookup}` : '';
+  const pronLine = pronHints ? `\nउच्चारण: ${pronHints}` : '';
+  const exampleLine = paraExamples.length > 0 
+    ? '\n' + paraExamples.slice(0,2).map(e => `"${e.raw}"→"${e.corrected}"`).join(', ')
+    : '';
 
-🔒 सभी नियम समान प्राथमिकता के हैं। कोई भी नियम दूसरे से ऊपर नहीं है।
-हर अनुभाग को ध्यान से पढ़ो और सभी चरणों को बराबर महत्व दो।
+  const prompt = `AAC सहायक। वाक् विकलांग व्यक्ति की अस्पष्ट बोली को सुधारो।${scenarioLine}${userCorrLine}${pronLine}
 
-<WORD_LIMIT>
-⚠️ शब्द सीमा:
-- इनपुट: ~${inputWordCount} शब्द → आउटपुट: अधिकतम ${maxOutputWords} शब्द।
-- 2 शब्द इनपुट → 2-4 शब्द आउटपुट। 10 शब्द → 10-12। 100 शब्द → 100-120।
-- इस सीमा का उल्लंघन कभी न करो।
-</WORD_LIMIT>
-`;
+Whisper गलतियाँ: तूल=स्कूल, बालिच=बारिश, इतली/तूकी=इसलिए, दई=गई, तपले=कपड़े, दीले=गीले, मेला=मेरा, था-लिया=खा-लिया, बला=भरा, पिलात्ता=इसलिए, डाला=गया
 
-  // SECTION 2 (HIGH PRIORITY): User-specific corrections — placed early for strong attention
-  if (wordLookup) {
-    prompt += `
-<USER_CORRECTIONS>
-🔴 इस व्यक्ति के ज्ञात शब्द सुधार (हमेशा लागू करो):
-${wordLookup}
-</USER_CORRECTIONS>
-`;
-  }
+Hinglish: ${hinglishHints.slice(0, 200)}
 
-  if (pronHints) {
-    prompt += `
-<PRONUNCIATION_PROFILE>
-🔴 इस व्यक्ति की उच्चारण प्रोफ़ाइल (अक्षर/वर्ण परीक्षा से पता चला):
-${pronHints}
-</PRONUNCIATION_PROFILE>
-`;
-  }
+शब्द सीमा: इनपुट ${inputWordCount} शब्द → आउटपुट अधिकतम ${maxOutputWords} शब्द।${exampleLine}
 
-  // SECTION 3: Few-shot examples from user's history
-  if (paraExamples.length > 0) {
-    prompt += `
-<PAST_CORRECTIONS>
-पिछले सुधारों के उदाहरण:
-`;
-    for (const ex of paraExamples) {
-      prompt += `गलत: "${ex.raw}" → सही: "${ex.corrected}"\n`;
-    }
-    prompt += `</PAST_CORRECTIONS>
-`;
-  }
+नियम: केवल हिंदी देवनागरी। कोई व्याख्या नहीं। मूल भावना न बदलो।
+चरण: 1)ज्ञात सुधार लागू करो 2)Whisper गलतियाँ ठीक करो 3)Hinglish→देवनागरी 4)संदर्भ से अर्थ तय करो 5)पड़ोसी शब्दों से सुधारो 6)व्याकरण ठीक करो`;
 
-  // SECTION 4 (EQUAL PRIORITY): Known Whisper errors & stammerer patterns
-  prompt += `
-<WHISPER_ERRORS>
-ज्ञात Whisper गलतियाँ (इन्हें हमेशा सुधारो):
-- "तूल"/"ततूल" = "स्कूल", "बालिच"/"बालिश" = "बारिश"
-- "तूकी"/"इतली"/"इसली" = "इसलिए", "दई" = "गई", "दए" = "गए", "दा" = "जा"
-- "तपले" = "कपड़े", "दीले" = "गीले", "मेला" = "मेरा"
-- "थाना"/"थाने" = "खाने", "था लिया" = "खा लिया"
-- "बला"/"बला हुआ" = "भरा"/"भरा हुआ", "पिलात्ता" = "इसलिए"
-- "डालना"/"डाला" = "जाना"/"गया", "दोल" = "रो", "देल" = "देर"
-- "आद"/"आदि" = "आज", "तोशू" = "खुश", "तज़ी" = "सिर"
-
-हकलाने वालों की विशेष गलतियाँ:
-- दोहराव: "मु-मुझे" = "मुझे", "पा-पानी" = "पानी"
-- लंबा स्वर: "पाआनी" = "पानी", "मुउउझे" = "मुझे"
-- टूटे शब्द: "स् कू ल" = "स्कूल"
-</WHISPER_ERRORS>
-`;
-
-  // SECTION 5 (EQUAL PRIORITY): Scenario context — placed in MIDDLE, not at top
-  if (scenarioContext) {
-    prompt += `
-<SCENARIO_CONTEXT>
-बातचीत का संदर्भ — दूसरे व्यक्ति ने पूछा: "${scenarioContext}"
-विषय: ${getTopicFromScenario(scenarioContext)}
-
-इस संदर्भ का उपयोग अस्पष्ट शब्दों का अर्थ तय करने में करो।
-लेकिन ज्ञात शब्द सुधार और उच्चारण प्रोफ़ाइल को संदर्भ से ऊपर रखो।
-अगर प्रश्न फिल्म के बारे में है → अज्ञात शब्द फिल्म का नाम हो सकते हैं।
-अगर प्रश्न खाने के बारे में है → अज्ञात शब्द खाने से संबंधित हो सकते हैं।
-</SCENARIO_CONTEXT>
-`;
-  }
-
-  if (expectedContext) {
-    prompt += `
-<EXPECTED_CONTEXT>
-संदर्भ वाक्य (शब्द-दर-शब्द मिलान): "${expectedContext}"
-</EXPECTED_CONTEXT>
-`;
-  }
-
-  // SECTION 6: Hinglish hints
-  prompt += `
-<HINGLISH>
-Hinglish शब्द पहचान:
-${hinglishHints}
-</HINGLISH>
-`;
-
-  // SECTION 7: Worked example
-  prompt += `
-<EXAMPLE>
-उदाहरण:
-इनपुट: "नहीं आज मेला पेट बला हुआ है। मैंने था लिया है। पिलात्ता थाना इतली नहीं दा पाऊंगा।"
-संदर्भ: "आज खाने चलोगे क्या?"
-सही: "नहीं, आज मेरा पेट भरा हुआ है। मैंने खा लिया है। इसलिए मैं खाने नहीं जा पाऊंगा।"
-</EXAMPLE>
-`;
-
-  // SECTION 8: Equal-weight workflow steps
-  prompt += `
-<WORKFLOW>
-⚠️ सभी चरण समान महत्व के हैं — कोई चरण छोड़ो नहीं:
-
-चरण 1 — USER_CORRECTIONS और PRONUNCIATION_PROFILE लागू करो (सबसे भरोसेमंद)।
-चरण 2 — WHISPER_ERRORS सुधारो। हकलाने के दोहराव हटाओ।
-चरण 3 — Hinglish → देवनागरी।
-चरण 4 — SCENARIO_CONTEXT से अस्पष्ट शब्दों का अर्थ तय करो।
-चरण 5 — पड़ोसी शब्दों के संदर्भ में सुधारो।
-चरण 6 — व्याकरण ठीक करो। अधूरे वाक्य पूरे करो।
-</WORKFLOW>
-
-कड़े नियम:
-- उत्तर केवल हिंदी देवनागरी में।
-- मूल भावना बिल्कुल न बदलो।
-- कोई व्याख्या या लेबल नहीं। सिर्फ सुधरा हुआ टेक्स्ट लिखो।
-`;
-
-  // Send BOTH the raw Whisper output AND the pre-processed version.
   const userMessage = rawText === preProcessed
     ? rawText
-    : `मूल (Whisper आउटपुट): "${rawText}"\nआंशिक सुधार: "${preProcessed}"\n\nकृपया पूरा सुधार करो।`;
+    : `मूल: "${rawText}"\nआंशिक: "${preProcessed}"\n\nसुधारो।`;
 
   const result = await llmChat(prompt, userMessage, 512);
   const limited = enforceWordLimit(rawText, result || preProcessed);
@@ -547,30 +441,18 @@ async function runCorrectionPipeline(rawText, corrections, pronunciation, expect
   // ── Post-LLM Macro Pass ────────────────────────────────────────────────
   final = macroPostProcess(final, userCorrections, pronProfile);
 
-  // ── Confidence check: skip expensive passes if pre/post are very similar
-  const overlap = wordOverlap(preProcessed, final);
-  console.log(`[correct] pre→post overlap: ${overlap}%`);
-
-  // ── Step 2: Para sense-check (skip if overlap > 90%) ──────────────────
-  if (overlap <= 90) {
-    try {
-      final = await runParagraphSenseCheck(rawText, final, userCorrections, pronProfile, expectedContext, scenarioContext);
-      final = enforceWordLimit(rawText, final);
-      final = macroPostProcess(final, userCorrections, pronProfile);
-    } catch (e) {
-      console.error('[correct] sense-check failed:', e.message);
-    }
-  }
-
-  // ── Step 3: Context confirmation (only for multi-word with context) ───
-  const inputWords = countWords(rawText);
-  if (inputWords > 3 && (scenarioContext || expectedContext) && overlap <= 90) {
-    try {
-      final = await runContextConfirmation(rawText, final, scenarioContext, expectedContext);
-      final = enforceWordLimit(rawText, final);
-      final = macroPostProcess(final, userCorrections, pronProfile);
-    } catch (e) {
-      console.error('[correct] context confirmation failed:', e.message);
+  // ── Steps 2+3: sense-check + confirmation only when scenario context present
+  // Skipped otherwise to stay within Vercel's 60s timeout
+  if (scenarioContext && countWords(rawText) > 3) {
+    const overlap = wordOverlap(preProcessed, final);
+    if (overlap <= 90) {
+      try {
+        final = await runContextConfirmation(rawText, final, scenarioContext, expectedContext);
+        final = enforceWordLimit(rawText, final);
+        final = macroPostProcess(final, userCorrections, pronProfile);
+      } catch (e) {
+        console.error('[correct] confirmation failed:', e.message);
+      }
     }
   }
 
