@@ -1,0 +1,188 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="100%" height="100%" style="background:#090d16; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;">
+  <defs>
+    <!-- Gradients -->
+    <linearGradient id="bgGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="50%" stop-color="#090d16" />
+      <stop offset="100%" stop-color="#050811" />
+    </linearGradient>
+
+    <linearGradient id="cyanPurple" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="100%" stop-color="#818cf8" />
+    </linearGradient>
+
+    <linearGradient id="cardGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1e293b" stop-opacity="0.8" />
+      <stop offset="100%" stop-color="#0f172a" stop-opacity="0.9" />
+    </linearGradient>
+
+    <filter id="neonGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background Base -->
+  <rect width="1200" height="675" fill="url(#bgGlow)" />
+  
+  <!-- Subtle Background Grid/Atmosphere -->
+  <circle cx="200" cy="150" r="280" fill="#38bdf8" opacity="0.04" filter="blur(40px)" />
+  <circle cx="1000" cy="500" r="320" fill="#a855f7" opacity="0.04" filter="blur(50px)" />
+
+  <!-- Header Section -->
+  <g transform="translate(600, 65)" text-anchor="middle">
+    <text y="0" fill="#f8fafc" font-size="34" font-weight="800" letter-spacing="1">वाणी सेतु (VANI SETU)</text>
+    <text y="30" fill="#38bdf8" font-size="15" font-weight="600" letter-spacing="2" opacity="0.9">AI ASSISTIVE VOICE &amp; HAPTIC BRAILLE ECOSYSTEM</text>
+    <text y="54" fill="#94a3b8" font-size="13" font-style="italic">"Understanding broken speech like a mother • Guiding sight through touch"</text>
+  </g>
+
+  <!-- ==================== 4 PILLARS CARDS ==================== -->
+
+  <!-- CARD 1: EMPATHETIC VOICE AI -->
+  <g transform="translate(50, 160)">
+    <rect width="250" height="450" rx="16" fill="url(#cardGrad1)" stroke="#334155" stroke-width="1.5" />
+    <rect x="0" y="0" width="250" height="5" rx="2" fill="#38bdf8" />
+    
+    <!-- Badge -->
+    <rect x="20" y="20" width="28" height="28" rx="8" fill="#0284c7" fill-opacity="0.3" />
+    <text x="34" y="39" fill="#38bdf8" font-size="15" font-weight="bold" text-anchor="middle">1</text>
+    <text x="60" y="39" fill="#f1f5f9" font-size="16" font-weight="700">Empathetic AI</text>
+    
+    <!-- Visual Graphic: Mother-Child Audio Bond -->
+    <g transform="translate(125, 150)" filter="url(#neonGlow)">
+      <!-- Mother Silhouette Arc -->
+      <path d="M-45,50 C-45,10 -25,-25 5,-35 C20,-40 30,-30 25,-15 C20,0 5,20 20,50" fill="none" stroke="#38bdf8" stroke-width="3.5" stroke-linecap="round" />
+      <!-- Child Silhouette Arc -->
+      <path d="M-10,50 C-10,30 0,15 15,15 C25,15 30,25 28,35 C25,45 20,50 35,50" fill="none" stroke="#fb7185" stroke-width="3" stroke-linecap="round" />
+      <!-- Heart Center -->
+      <path d="M-2,0 C-8,-10 -18,-5 -15,5 C-12,12 -2,18 -2,18 C-2,18 8,12 11,5 C14,-5 4,-10 -2,0 Z" fill="#f43f5e" opacity="0.85" />
+    </g>
+
+    <!-- Description Text -->
+    <text x="125" y="260" fill="#38bdf8" font-size="13" font-weight="600" text-anchor="middle">Motherly Intuition</text>
+    <foreignObject x="20" y="280" width="210" height="150">
+      <p xmlns="http://www.w3.org/1999/xhtml" style="color: #94a3b8; font-size: 13px; line-height: 1.5; text-align: center; margin: 0;">
+        Just as a mother effortlessly understands her child's stutter or broken words, our empathetic AI deciphers raw intent without judgment.
+      </p>
+    </foreignObject>
+  </g>
+
+  <!-- CARD 2: REAL-TIME SPEECH CLARIFIER -->
+  <g transform="translate(330, 160)">
+    <rect width="250" height="450" rx="16" fill="url(#cardGrad1)" stroke="#334155" stroke-width="1.5" />
+    <rect x="0" y="0" width="250" height="5" rx="2" fill="#818cf8" />
+    
+    <!-- Badge -->
+    <rect x="20" y="20" width="28" height="28" rx="8" fill="#4f46e5" fill-opacity="0.3" />
+    <text x="34" y="39" fill="#818cf8" font-size="15" font-weight="bold" text-anchor="middle">2</text>
+    <text x="60" y="39" fill="#f1f5f9" font-size="16" font-weight="700">Speech Clarifier</text>
+
+    <!-- Visual Graphic: Audio Wave -> Clean Speech Bubble -->
+    <g transform="translate(125, 140)">
+      <!-- Broken Wave -->
+      <path d="M-80,0 L-65,-18 L-50,15 L-35,-25 L-20,20 L-5,-5" fill="none" stroke="#f43f5e" stroke-width="2.5" stroke-linecap="round" />
+      <!-- Arrow -->
+      <path d="M5,0 L20,0 M15,-5 L20,0 L15,5" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" />
+      <!-- Clean Speech Bubble -->
+      <rect x="30" y="-22" width="60" height="40" rx="8" fill="#4f46e5" fill-opacity="0.3" stroke="#818cf8" stroke-width="2" />
+      <line x1="42" y1="-10" x2="78" y2="-10" stroke="#f8fafc" stroke-width="2.5" stroke-linecap="round" />
+      <line x1="42" y1="-1" x2="68" y2="-1" stroke="#38bdf8" stroke-width="2" stroke-linecap="round" />
+      <polygon points="38,18 48,18 38,26" fill="#818cf8" />
+    </g>
+
+    <!-- Description Text -->
+    <text x="125" y="260" fill="#818cf8" font-size="13" font-weight="600" text-anchor="middle">Sub-Second Clarity</text>
+    <foreignObject x="20" y="280" width="210" height="150">
+      <p xmlns="http://www.w3.org/1999/xhtml" style="color: #94a3b8; font-size: 13px; line-height: 1.5; text-align: center; margin: 0;">
+        Converts dysarthric, stuttered, &amp; Hinglish speech into fluent, grammatically perfect sentences spoken aloud in under 1 second.
+      </p>
+    </foreignObject>
+  </g>
+
+  <!-- CARD 3: SMART ASSISTIVE WATCH -->
+  <g transform="translate(610, 160)">
+    <rect width="250" height="450" rx="16" fill="url(#cardGrad1)" stroke="#334155" stroke-width="1.5" />
+    <rect x="0" y="0" width="250" height="5" rx="2" fill="#fb923c" />
+    
+    <!-- Badge -->
+    <rect x="20" y="20" width="28" height="28" rx="8" fill="#c2410c" fill-opacity="0.3" />
+    <text x="34" y="39" fill="#fb923c" font-size="15" font-weight="bold" text-anchor="middle">3</text>
+    <text x="60" y="39" fill="#f1f5f9" font-size="16" font-weight="700">Vani-Watch</text>
+
+    <!-- Visual Graphic: Smartwatch with Sound Waves -->
+    <g transform="translate(125, 140)">
+      <!-- Watch Strap -->
+      <rect x="-15" y="-55" width="30" height="110" rx="6" fill="#334155" />
+      <!-- Watch Body -->
+      <rect x="-28" y="-32" width="56" height="64" rx="12" fill="#0f172a" stroke="#fb923c" stroke-width="2.5" />
+      <!-- Watch Screen Icon -->
+      <circle cx="0" cy="0" r="14" fill="#ea580c" fill-opacity="0.2" />
+      <path d="M-6,0 L-2,-8 L2,8 L6,0" fill="none" stroke="#fb923c" stroke-width="2" stroke-linecap="round" />
+      <!-- Soundwave Radiations -->
+      <path d="M36,-15 C44,-5 44,5 36,15" fill="none" stroke="#fb923c" stroke-width="2" stroke-linecap="round" opacity="0.8" />
+      <path d="M44,-22 C56,-8 56,8 44,22" fill="none" stroke="#fed7aa" stroke-width="2" stroke-linecap="round" opacity="0.4" />
+    </g>
+
+    <!-- Description Text -->
+    <text x="125" y="260" fill="#fb923c" font-size="13" font-weight="600" text-anchor="middle">Wrist Voice &amp; SOS</text>
+    <foreignObject x="20" y="280" width="210" height="150">
+      <p xmlns="http://www.w3.org/1999/xhtml" style="color: #94a3b8; font-size: 13px; line-height: 1.5; text-align: center; margin: 0;">
+        Future standalone wearable capturing micro vocal vibrations to speak aloud on-the-go with one-tap emergency caregiver SOS.
+      </p>
+    </foreignObject>
+  </g>
+
+  <!-- CARD 4: HAPTIC BRAILLE TOUCH -->
+  <g transform="translate(890, 160)">
+    <rect width="250" height="450" rx="16" fill="url(#cardGrad1)" stroke="#334155" stroke-width="1.5" />
+    <rect x="0" y="0" width="250" height="5" rx="2" fill="#2dd4bf" />
+    
+    <!-- Badge -->
+    <rect x="20" y="20" width="28" height="28" rx="8" fill="#0f766e" fill-opacity="0.3" />
+    <text x="34" y="39" fill="#2dd4bf" font-size="15" font-weight="bold" text-anchor="middle">4</text>
+    <text x="60" y="39" fill="#f1f5f9" font-size="16" font-weight="700">Haptic Braille</text>
+
+    <!-- Visual Graphic: Smartphone with Braille Dots & Vibration Rings -->
+    <g transform="translate(125, 140)">
+      <!-- Phone Body -->
+      <rect x="-30" y="-45" width="60" height="90" rx="10" fill="#0f172a" stroke="#2dd4bf" stroke-width="2.5" />
+      <!-- Braille Dots Grid -->
+      <circle cx="-12" cy="-22" r="3.5" fill="#2dd4bf" filter="url(#softGlow)" />
+      <circle cx="12" cy="-22" r="2.5" fill="#475569" />
+      <circle cx="-12" cy="-6" r="3.5" fill="#2dd4bf" filter="url(#softGlow)" />
+      <circle cx="12" cy="-6" r="3.5" fill="#2dd4bf" filter="url(#softGlow)" />
+      <circle cx="-12" cy="10" r="2.5" fill="#475569" />
+      <circle cx="12" cy="10" r="2.5" fill="#475569" />
+      <!-- Tracing Finger & Vibration Wave -->
+      <path d="M-12,-6 C-8,12 18,20 25,38" fill="none" stroke="#2dd4bf" stroke-dasharray="3,3" stroke-width="1.5" />
+      <!-- Vibration Rings around finger -->
+      <circle cx="-12" cy="-6" r="9" fill="none" stroke="#5eead4" stroke-width="1" opacity="0.7" />
+      <circle cx="-12" cy="-6" r="15" fill="none" stroke="#5eead4" stroke-width="0.8" opacity="0.3" />
+    </g>
+
+    <!-- Description Text -->
+    <text x="125" y="260" fill="#2dd4bf" font-size="13" font-weight="600" text-anchor="middle">Touch &amp; Feel Letters</text>
+    <foreignObject x="20" y="280" width="210" height="150">
+      <p xmlns="http://www.w3.org/1999/xhtml" style="color: #94a3b8; font-size: 13px; line-height: 1.5; text-align: center; margin: 0;">
+        Screen vibrates when tracing the correct Braille path and stops when off-track, turning ordinary phone screens into tactile books for the blind.
+      </p>
+    </foreignObject>
+  </g>
+
+  <!-- Footer Tag -->
+  <g transform="translate(600, 642)" text-anchor="middle">
+    <text fill="#64748b" font-size="12" font-weight="500">SIH 2026 Innovation • Empowering Speech &amp; Vision Inclusivity</text>
+  </g>
+</svg>

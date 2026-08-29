@@ -4,6 +4,7 @@ import { MicButton } from './components/MicButton';
 import { SpeakButton } from './components/SpeakButton';
 import { StatusBanner, type PipelineStage } from './components/StatusBanner';
 import { TestMode } from './components/TestMode';
+import { TherapyMode } from './components/TherapyMode';
 import { TranscriptPanel } from './components/TranscriptPanel';
 import { TypeInput } from './components/TypeInput';
 import { ScenarioInput } from './components/ScenarioInput';
@@ -28,7 +29,9 @@ export default function App() {
   const [groqReady, setGroqReady] = useState<boolean | null>(null);
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [testOpen,  setTestOpen]  = useState(false);
+  const [therapyOpen, setTherapyOpen] = useState(false);
   const [scenarioContext, setScenarioContext] = useState('');
+  const [patientType, setPatientType] = useState<'stammerer' | 'dyslexia'>('stammerer');
 
   const { state: recorderState, startRecording, stopRecording } = useAudioRecorder();
 
@@ -63,7 +66,7 @@ export default function App() {
       }
       try {
         setStage('correcting');
-        const corrected = await correctHindi(transcribed, scenarioContext);
+        const corrected = await correctHindi(transcribed, scenarioContext, patientType);
         setCorrectedText(corrected);
         setStage('done'); // set done before speaking so UI shows corrected text
 
@@ -76,7 +79,7 @@ export default function App() {
         setError(err instanceof Error ? err.message : 'कुछ गलत हो गया');
       }
     },
-    [autoSpeak, speakHindi, scenarioContext],
+    [autoSpeak, speakHindi, scenarioContext, patientType],
   );
 
   /** After mic recording: transcribe → pipeline */
@@ -84,15 +87,15 @@ export default function App() {
     async (blob: Blob) => {
       setError(null);
       try {
-        setStage('transcribing');
         const text = await transcribeAudio(blob);
-        setRawText(text);
-        if (!text.trim()) {
+        const cleanTranscribed = (text ?? '').replace(/^[.,!?;:।\s\-_]+$/, '').trim();
+        setRawText(cleanTranscribed);
+        if (!cleanTranscribed) {
           setStage('done');
-          setError('कोई आवाज़ नहीं पहचानी गई। माइक के पास ज़ोर से या धीरे-धीरे बोलें।');
+          setError('कोई आवाज़ नहीं पहचानी गई। माइक के पास ज़ोर से या साफ़ बोलें।');
           return;
         }
-        await runPipeline(text);
+        await runPipeline(cleanTranscribed);
       } catch (err) {
         setStage('error');
         setError(err instanceof Error ? err.message : 'कुछ गलत हो गया');
@@ -181,16 +184,54 @@ export default function App() {
             <p className="app__subtitle">अस्पष्ट बोली → सही हिंदी → आवाज़</p>
           </div>
         </div>
-        <button
-          type="button"
-          className="test-open-btn"
-          onClick={() => { stopSpeaking(); setTestOpen(true); }}
-          aria-label="परीक्षा मोड खोलें"
-          title="परीक्षा लें"
-        >
-          📝 परीक्षा
-        </button>
+        <div className="app__header-actions">
+          <button
+            type="button"
+            className="therapy-open-btn"
+            onClick={() => { stopSpeaking(); setTherapyOpen(true); }}
+            aria-label="डॉक्टर-अनुमोदित थेरेपी केंद्र खोलें"
+            title="डॉक्टर-अनुमोदित थेरेपी"
+          >
+            🩺 थेरेपी (Therapy)
+          </button>
+          <button
+            type="button"
+            className="test-open-btn"
+            onClick={() => { stopSpeaking(); setTestOpen(true); }}
+            aria-label="परीक्षा मोड खोलें"
+            title="परीक्षा लें"
+          >
+            📝 परीक्षा
+          </button>
+        </div>
       </header>
+
+      <div className="patient-selector-container">
+        <div className="patient-selector">
+          <button
+            type="button"
+            className={`patient-selector__btn ${patientType === 'stammerer' ? 'active' : ''}`}
+            onClick={() => { stopSpeaking(); setPatientType('stammerer'); }}
+          >
+            🔀 Stammerer Mode (हकलाना)
+          </button>
+          <button
+            type="button"
+            className={`patient-selector__btn ${patientType === 'dyslexia' ? 'active' : ''}`}
+            onClick={() => { stopSpeaking(); setPatientType('dyslexia'); }}
+          >
+            📖 Dyslexia Mode (डिस्लेक्सिया)
+          </button>
+        </div>
+      </div>
+
+      {/* Therapy mode overlay — Doctor-approved clinical therapies for stammer & dyslexia */}
+      {therapyOpen && (
+        <TherapyMode
+          onClose={() => setTherapyOpen(false)}
+          initialCategory={patientType === 'dyslexia' ? 'dyslexia' : 'stammer'}
+        />
+      )}
 
       {/* Test mode overlay — rendered on top, all existing features untouched */}
       {testOpen && (

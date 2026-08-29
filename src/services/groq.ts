@@ -1,8 +1,11 @@
 import { parseJsonResponse, getApiUrl } from './apiUtils';
 
-export async function transcribeAudio(blob: Blob): Promise<string> {
+export async function transcribeAudio(blob: Blob, isContext: boolean = false): Promise<string> {
   const formData = new FormData();
   formData.append('audio', blob, 'recording.webm');
+  if (isContext) {
+    formData.append('isContext', 'true');
+  }
 
   const response = await fetch(getApiUrl('/api/transcribe'), {
     method: 'POST',

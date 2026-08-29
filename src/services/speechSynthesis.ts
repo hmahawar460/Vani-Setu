@@ -75,37 +75,64 @@ function delay(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+let currentAudio: HTMLAudioElement | null = null;
+
 export function speak(text: string, rate = 0.85): Promise<void> {
-  // Clean any remaining Roman/Hinglish words before sending to hi-IN TTS voice
   const cleaned = prepareForSpeech(text);
   return speakRaw(cleaned, rate);
 }
 
 function speakRaw(text: string, rate = 0.85): Promise<void> {
   return new Promise((resolve, reject) => {
+    // 1. Stop any currently playing audio/speech
+    stopSpeaking();
+
+    // 2. Play using the server-side multilingual TTS model
+    const url = `/api/tts?text=${encodeURIComponent(text)}`;
+    const audio = new Audio(url);
+    currentAudio = audio;
+    audio.playbackRate = rate;
+
+    audio.onended = () => {
+      if (currentAudio === audio) currentAudio = null;
+      resolve();
+    };
+
+    audio.onerror = (e) => {
+      if (currentAudio === audio) currentAudio = null;
+      console.warn('[TTS] Server-side TTS failed, falling back to local Web Speech API:', e);
+      speakNative(text, rate).then(resolve).catch(reject);
+    };
+
+    audio.play().catch((err) => {
+      if (currentAudio === audio) currentAudio = null;
+      console.warn('[TTS] Audio playback failed, falling back to local Web Speech API:', err);
+      speakNative(text, rate).then(resolve).catch(reject);
+    });
+  });
+}
+
+function speakNative(text: string, rate = 0.85): Promise<void> {
+  return new Promise((resolve, reject) => {
     if (!isSpeechSynthesisSupported()) {
       reject(new Error('इस ब्राउज़र में आवाज़ सपोर्ट नहीं है। Chrome या Edge आज़माएँ।'));
       return;
     }
 
-    // Cancel any ongoing speech first
     window.speechSynthesis.cancel();
 
     const doSpeak = () => {
-      // Ensure voices are loaded
       const hindiVoice = getBestHindiVoice();
 
       const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = SPEECH_LOCALE; // always hi-IN
-      utterance.rate = rate;          // 0.85 — clear for disability users
+      utterance.lang = SPEECH_LOCALE;
+      utterance.rate = rate;
       utterance.pitch = 1;
       utterance.volume = 1;
 
       if (hindiVoice) {
         utterance.voice = hindiVoice;
-        console.log(`[TTS] Using: ${hindiVoice.name} (${hindiVoice.lang})`);
-      } else {
-        console.warn('[TTS] No Hindi voice — using browser default with lang=hi-IN');
+        console.log(`[TTS Fallback] Using native: ${hindiVoice.name}`);
       }
 
       let keepAlive: ReturnType<typeof setInterval> | null = null;
@@ -115,22 +142,17 @@ function speakRaw(text: string, rate = 0.85): Promise<void> {
       };
 
       utterance.onend = () => { cleanup(); resolve(); };
-
       utterance.onerror = (e) => {
         cleanup();
-        // 'interrupted'/'canceled' = stopSpeaking() was called intentionally — not an error
         if (e.error === 'interrupted' || e.error === 'canceled') {
           resolve();
         } else {
-          console.error('[TTS] error:', e.error);
           reject(new Error(e.error ?? 'Speech failed'));
         }
       };
 
       window.speechSynthesis.speak(utterance);
 
-      // Chrome bug: speechSynthesis silently pauses on long text after ~15s
-      // Keep it alive by pause/resume every 10s
       keepAlive = setInterval(() => {
         if (!window.speechSynthesis.speaking) {
           cleanup();
@@ -141,8 +163,6 @@ function speakRaw(text: string, rate = 0.85): Promise<void> {
       }, 10000);
     };
 
-    // Chrome requires a small gap after cancel() before the next speak() works
-    // Without this delay, speak() is silently ignored
     if (cachedVoices.length > 0) {
       delay(120).then(doSpeak);
     } else {
@@ -152,6 +172,14 @@ function speakRaw(text: string, rate = 0.85): Promise<void> {
 }
 
 export function stopSpeaking(): void {
+  if (currentAudio) {
+    try {
+      currentAudio.pause();
+    } catch {
+      // ignore
+    }
+    currentAudio = null;
+  }
   if (isSpeechSynthesisSupported()) {
     window.speechSynthesis.cancel();
   }
@@ -174,3 +202,4 @@ export function loadVoices(): Promise<SpeechSynthesisVoice[]> {
     window.speechSynthesis.getVoices();
   });
 }
+

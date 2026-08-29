@@ -1,0 +1,46 @@
+# railway.toml — WisperFlow multi-service deployment config
+#
+# Two services are defined:
+#   wisper-flow     : Node.js Express server + built React frontend (public)
+#   wisper-flow-ml  : Python FastAPI ML sidecar (internal only — NOT public)
+#
+# Deploy steps:
+#   1. Create a new project on https://railway.app
+#   2. Connect your GitHub repo
+#   3. Railway auto-detects both services from this file
+#   4. Set secrets: GROQ_API_KEY on the Node service
+#   5. Railway injects ML_SIDECAR_URL automatically via internal DNS
+#
+# Public URL will be: https://vani-setu.up.railway.app
+
+[build]
+builder = "nixpacks"
+
+[[services]]
+name = "wisper-flow"
+source = "."
+
+[services.build]
+buildCommand = "npm install && npm run build"
+
+[services.deploy]
+startCommand = "node server/index.js"
+
+[services.variables]
+PORT = "3001"
+# Set GROQ_API_KEY as a Railway secret (do not hardcode here)
+# ML_SIDECAR_URL is set automatically to the internal sidecar address
+
+[[services]]
+name = "wisper-flow-ml"
+source = "ml_sidecar"
+
+[services.build]
+buildCommand = "pip install -r requirements.txt"
+
+[services.deploy]
+startCommand = "uvicorn main:app --host 0.0.0.0 --port 8000"
+# This service is NOT assigned a public domain — internal only
+
+[services.variables]
+PORT = "8000"

@@ -25,7 +25,7 @@ export function ScenarioInput({ scenario, onChange, disabled }: ScenarioInputPro
           setIsTranscribing(false);
           return;
         }
-        const text = await transcribeAudio(blob);
+        const text = await transcribeAudio(blob, true);
         if (text.trim()) {
           // If there's already some scenario text, append it. Otherwise set it.
           const newText = scenario ? `${scenario} ${text}` : text;

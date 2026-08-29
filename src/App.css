@@ -1288,4 +1288,1589 @@
 }
 .scenario-input__error { color: #f0b0b0; }
 
+.patient-selector-container {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+}
 
+.patient-selector {
+  display: flex;
+  background: #181d28;
+  border: 1px solid #283145;
+  border-radius: 30px;
+  padding: 4px;
+  width: 100%;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.patient-selector__btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  border-radius: 26px;
+  padding: 0.6rem 1rem;
+  color: #8c97ad;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.patient-selector__btn:hover {
+  color: #ffffff;
+}
+
+.patient-selector__btn.active {
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(37, 99, 235, 0.4);
+}
+
+/* ── Header Actions Button Group ─────────────────────────────────────────── */
+.app__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.therapy-open-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.95rem;
+  background: linear-gradient(135deg, #059669, #0d9488);
+  border: 1px solid rgba(13, 148, 136, 0.5);
+  border-radius: 10px;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgba(13, 148, 136, 0.35);
+  transition: all 0.2s ease;
+}
+
+.therapy-open-btn:hover {
+  background: linear-gradient(135deg, #10b981, #14b8a6);
+  transform: translateY(-1px) scale(1.02);
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.45);
+}
+
+/* ── Therapy Overlay & Container ─────────────────────────────────────────── */
+.therapy-overlay {
+  position: fixed;
+  inset: 0;
+  background: #090c10;
+  z-index: 1000;
+  overflow-y: auto;
+  display: flex;
+  justify-content: center;
+  padding: 1rem 0.75rem 3rem;
+  box-sizing: border-box;
+}
+
+.therapy-container {
+  width: 100%;
+  max-width: 960px;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+/* ── Therapy Header ──────────────────────────────────────────────────────── */
+.therapy-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.1rem 1.25rem;
+  background: #121721;
+  border: 1px solid #1f293d;
+  border-radius: 16px;
+  gap: 1rem;
+}
+
+.therapy-header__brand {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.9rem;
+}
+
+.therapy-header__icon {
+  font-size: 2.2rem;
+  background: rgba(13, 148, 136, 0.15);
+  border: 1px solid rgba(13, 148, 136, 0.3);
+  padding: 0.4rem 0.6rem;
+  border-radius: 12px;
+  line-height: 1;
+}
+
+.therapy-header__badge-row {
+  display: flex;
+  gap: 0.45rem;
+  margin-bottom: 0.3rem;
+  flex-wrap: wrap;
+}
+
+.therapy-pill {
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: 20px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.therapy-pill--clinical {
+  background: rgba(13, 148, 136, 0.2);
+  color: #2dd4bf;
+  border: 1px solid rgba(45, 212, 191, 0.35);
+}
+
+.therapy-pill--streak {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.35);
+}
+
+.therapy-pill--success {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+}
+
+.therapy-header__title {
+  margin: 0;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.therapy-header__sub {
+  margin: 0.2rem 0 0;
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.therapy-header__right-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.therapy-lang-switcher {
+  display: inline-flex;
+  background: #090c10;
+  border: 1px solid #1f293d;
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.lang-btn {
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  color: #94a3b8;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.35rem 0.65rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.lang-btn:hover {
+  color: #f1f5f9;
+}
+
+.lang-btn.active {
+  background: #0d9488;
+  color: #ffffff;
+  box-shadow: 0 2px 6px rgba(13, 148, 136, 0.4);
+}
+
+.therapy-close-btn {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+  padding: 0.5rem 0.9rem;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.therapy-close-btn:hover {
+  background: rgba(239, 68, 68, 0.25);
+  border-color: #ef4444;
+  color: #ffffff;
+}
+
+/* ── Navigation Tabs ─────────────────────────────────────────────────────── */
+.therapy-tabs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.5rem;
+  background: #101520;
+  padding: 0.4rem;
+  border-radius: 14px;
+  border: 1px solid #1a2233;
+}
+
+.therapy-tab {
+  padding: 0.7rem 0.9rem;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: #94a3b8;
+  font-family: inherit;
+  font-size: 0.86rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
+}
+
+.therapy-tab:hover {
+  color: #f1f5f9;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.therapy-tab.active {
+  background: linear-gradient(135deg, #0d9488, #0f766e);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(13, 148, 136, 0.35);
+}
+
+/* ── Filter & Search Bar ─────────────────────────────────────────────────── */
+.therapy-filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.therapy-search-box {
+  display: flex;
+  align-items: center;
+  background: #131926;
+  border: 1px solid #222d42;
+  border-radius: 12px;
+  padding: 0.55rem 0.9rem;
+  gap: 0.6rem;
+}
+
+.therapy-search-box:focus-within {
+  border-color: #14b8a6;
+  box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.2);
+}
+
+.search-icon {
+  font-size: 1.05rem;
+}
+
+.therapy-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #f1f5f9;
+  font-family: inherit;
+  font-size: 0.92rem;
+  outline: none;
+}
+
+.search-clear-btn {
+  background: transparent;
+  border: none;
+  color: #64748b;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.search-clear-btn:hover {
+  color: #f87171;
+}
+
+.therapy-stat-callout {
+  background: rgba(13, 148, 136, 0.1);
+  border: 1px solid rgba(13, 148, 136, 0.25);
+  border-radius: 10px;
+  padding: 0.65rem 0.95rem;
+  font-size: 0.85rem;
+  color: #cbd5e1;
+  line-height: 1.45;
+}
+
+/* ── Therapy Grid & Cards ────────────────────────────────────────────────── */
+.therapy-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
+  gap: 1rem;
+}
+
+@media (max-width: 600px) {
+  .therapy-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.therapy-card {
+  background: #121824;
+  border: 1px solid #1e283d;
+  border-radius: 16px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+
+.therapy-card:hover {
+  border-color: #0d9488;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.therapy-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.therapy-card__badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #2dd4bf;
+  background: rgba(45, 212, 191, 0.12);
+  border: 1px solid rgba(45, 212, 191, 0.3);
+  border-radius: 20px;
+  padding: 0.2rem 0.55rem;
+}
+
+.therapy-card__rate {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.12);
+  padding: 0.2rem 0.55rem;
+  border-radius: 20px;
+}
+
+.therapy-card__title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.therapy-card__eng-title {
+  margin: -0.45rem 0 0;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #94a3b8;
+}
+
+.therapy-card__meta {
+  background: #0d121c;
+  padding: 0.65rem 0.8rem;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+}
+
+.meta-item {
+  margin: 0;
+  color: #cbd5e1;
+  line-height: 1.35;
+}
+
+.meta-label {
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.therapy-card__evidence-snippet {
+  margin: 0;
+  font-size: 0.83rem;
+  color: #94a3b8;
+  line-height: 1.45;
+}
+
+.therapy-card__symptoms {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.symptom-tag-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.symptom-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.symptom-tag {
+  font-size: 0.73rem;
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  color: #93c5fd;
+  border-radius: 6px;
+  padding: 0.15rem 0.45rem;
+}
+
+.therapy-card__footer {
+  margin-top: auto;
+  padding-top: 0.5rem;
+}
+
+.therapy-start-btn {
+  width: 100%;
+  padding: 0.65rem 1rem;
+  background: linear-gradient(135deg, #0d9488, #0f766e);
+  border: none;
+  border-radius: 10px;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.therapy-start-btn:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+
+/* ── Detail View: Active Therapy & Interactive Tools ──────────────────────── */
+.therapy-detail-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.therapy-detail-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.therapy-back-btn {
+  background: transparent;
+  border: 1px solid #2d3748;
+  color: #cbd5e1;
+  padding: 0.45rem 0.85rem;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.therapy-back-btn:hover {
+  border-color: #14b8a6;
+  color: #14b8a6;
+}
+
+.therapy-detail-badge-group {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.therapy-detail-hero {
+  background: #121824;
+  border: 1px solid #1f293d;
+  border-radius: 16px;
+  padding: 1.25rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.therapy-detail-title {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.therapy-detail-eng-title {
+  margin: 0.2rem 0 0;
+  font-size: 0.92rem;
+  color: #94a3b8;
+}
+
+.therapy-doctor-box {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  background: #0d121c;
+  border: 1px solid #1a2233;
+  padding: 0.6rem 0.9rem;
+  border-radius: 12px;
+}
+
+.doc-avatar {
+  font-size: 1.75rem;
+}
+
+.doc-name {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #f1f5f9;
+}
+
+.doc-inst {
+  font-size: 0.76rem;
+  color: #94a3b8;
+}
+
+.therapy-science-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 1rem;
+}
+
+.science-card {
+  background: #121824;
+  border: 1px solid #1e283d;
+  border-radius: 14px;
+  padding: 1.1rem;
+}
+
+.science-card h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: #2dd4bf;
+}
+
+.science-card p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
+.therapy-outcomes-box {
+  background: #101622;
+  border: 1px solid #1a2233;
+  border-radius: 14px;
+  padding: 1.1rem;
+}
+
+.therapy-outcomes-box h3 {
+  margin: 0 0 0.6rem;
+  font-size: 0.96rem;
+  font-weight: 700;
+  color: #34d399;
+}
+
+.outcomes-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 0.5rem;
+}
+
+.outcome-item {
+  font-size: 0.84rem;
+  color: #cbd5e1;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  line-height: 1.35;
+}
+
+.outcome-check {
+  color: #34d399;
+  font-weight: bold;
+}
+
+/* ── Interactive Breathing Tool ──────────────────────────────────────────── */
+.interactive-tool-box {
+  background: #0f1520;
+  border: 1.5px solid #14b8a6;
+  border-radius: 16px;
+  padding: 1.4rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1rem;
+}
+
+.tool-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.tool-title-row h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.tool-badge {
+  font-size: 0.75rem;
+  background: rgba(20, 184, 166, 0.2);
+  color: #2dd4bf;
+  border: 1px solid rgba(45, 212, 191, 0.35);
+  padding: 0.15rem 0.5rem;
+  border-radius: 14px;
+  font-weight: 600;
+}
+
+.tool-desc {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #94a3b8;
+  max-width: 600px;
+}
+
+.breathing-circle-wrapper {
+  padding: 1.5rem 0;
+}
+
+.breathing-circle {
+  width: 170px;
+  height: 170px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(13, 148, 136, 0.35) 0%, rgba(13, 148, 136, 0.05) 70%);
+  border: 3px solid #14b8a6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 1s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.4s;
+  box-shadow: 0 0 25px rgba(20, 184, 166, 0.25);
+}
+
+.breathing-circle--inhale.active {
+  transform: scale(1.35);
+  border-color: #38bdf8;
+  box-shadow: 0 0 45px rgba(56, 189, 248, 0.45);
+}
+
+.breathing-circle--hold.active {
+  transform: scale(1.35);
+  border-color: #fbbf24;
+  box-shadow: 0 0 40px rgba(251, 191, 36, 0.4);
+}
+
+.breathing-circle--exhale.active {
+  transform: scale(0.9);
+  border-color: #34d399;
+  box-shadow: 0 0 35px rgba(52, 211, 153, 0.35);
+}
+
+.breathing-circle--rest.active {
+  transform: scale(0.85);
+  border-color: #94a3b8;
+  box-shadow: 0 0 15px rgba(148, 163, 184, 0.2);
+}
+
+.breathing-circle__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.breathing-phase-name {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #f1f5f9;
+  padding: 0 0.5rem;
+}
+
+.breathing-seconds {
+  font-size: 1.8rem;
+  font-weight: 800;
+  color: #ffffff;
+}
+
+.tool-controls {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.tool-action-btn {
+  padding: 0.65rem 1.3rem;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: none;
+}
+
+.btn-start {
+  background: linear-gradient(135deg, #0d9488, #0f766e);
+  color: #ffffff;
+}
+
+.btn-start:hover {
+  background: linear-gradient(135deg, #14b8a6, #0d9488);
+}
+
+.btn-stop {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid #ef4444;
+  color: #fca5a5;
+}
+
+.btn-stop:hover {
+  background: rgba(239, 68, 68, 0.3);
+  color: #ffffff;
+}
+
+.cycle-counter {
+  font-size: 0.85rem;
+  color: #94a3b8;
+}
+
+.cycle-counter strong {
+  color: #2dd4bf;
+}
+
+/* ── Interactive Metronome Tool ──────────────────────────────────────────── */
+.metronome-visualizer {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.beat-dot {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: #182030;
+  border: 2px solid #2d3748;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #64748b;
+  font-size: 0.95rem;
+  transition: all 0.1s ease;
+}
+
+.beat-dot.beat-active {
+  background: #14b8a6;
+  border-color: #2dd4bf;
+  color: #042f2e;
+  transform: scale(1.18);
+  box-shadow: 0 0 20px rgba(20, 184, 166, 0.7);
+}
+
+.metronome-slider-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: 100%;
+  max-width: 380px;
+}
+
+.metronome-slider-box label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.bpm-slider {
+  width: 100%;
+  accent-color: #14b8a6;
+  cursor: pointer;
+}
+
+.bpm-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
+/* ── Exercise Station ────────────────────────────────────────────────────── */
+.exercise-station {
+  background: #121824;
+  border: 1px solid #1f293d;
+  border-radius: 16px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.exercise-tabs-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  border-bottom: 1px solid #1a2233;
+  padding-bottom: 0.75rem;
+}
+
+.exercise-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.exercise-pills {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.ex-pill {
+  padding: 0.4rem 0.8rem;
+  border-radius: 8px;
+  border: 1px solid #2d3748;
+  background: transparent;
+  color: #94a3b8;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.ex-pill:hover {
+  color: #f1f5f9;
+  border-color: #4b5563;
+}
+
+.ex-pill.active {
+  background: #14b8a6;
+  border-color: #14b8a6;
+  color: #042f2e;
+  font-weight: 700;
+}
+
+.exercise-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.exercise-card__title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.exercise-card__instruction {
+  margin: 0;
+  font-size: 0.86rem;
+  color: #cbd5e1;
+}
+
+.exercise-target-box {
+  background: #0d121c;
+  border: 1.5px solid #2a344a;
+  border-radius: 12px;
+  padding: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.target-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #2dd4bf;
+  letter-spacing: 0.03em;
+}
+
+.target-text {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.45;
+}
+
+.target-phonetics {
+  font-size: 0.82rem;
+  color: #93c5fd;
+}
+
+.target-phonetics span {
+  color: #60a5fa;
+  font-weight: 600;
+}
+
+.exercise-tips-box {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 10px;
+  padding: 0.75rem 0.95rem;
+  font-size: 0.82rem;
+  color: #fcd34d;
+}
+
+.exercise-tips-box ul {
+  margin: 0.35rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.exercise-tips-box li {
+  color: #fef08a;
+}
+
+.exercise-actions-bar {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.audio-demo-btn {
+  flex: 1;
+  min-width: 200px;
+  padding: 0.75rem 1rem;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 10px;
+  color: #f1f5f9;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all 0.15s;
+}
+
+.audio-demo-btn:hover {
+  background: #334155;
+  border-color: #64748b;
+}
+
+.audio-demo-btn.playing {
+  background: rgba(239, 68, 68, 0.15);
+  border-color: #ef4444;
+  color: #fca5a5;
+}
+
+.record-practice-btn {
+  flex: 1;
+  min-width: 200px;
+  padding: 0.75rem 1rem;
+  background: linear-gradient(135deg, #2563eb, #1d4ed8);
+  border: none;
+  border-radius: 10px;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: all 0.15s;
+}
+
+.record-practice-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+}
+
+.record-practice-btn.recording {
+  background: linear-gradient(135deg, #dc2626, #b91c1c);
+  animation: pulse 1.2s infinite;
+}
+
+.record-practice-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.evaluating-banner {
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  border-radius: 10px;
+  padding: 0.65rem 0.9rem;
+  font-size: 0.85rem;
+  color: #93c5fd;
+  text-align: center;
+}
+
+.heard-box {
+  background: #0d121c;
+  border: 1px solid #1a2233;
+  border-radius: 10px;
+  padding: 0.65rem 0.9rem;
+  font-size: 0.85rem;
+  color: #cbd5e1;
+}
+
+.feedback-card {
+  border-radius: 12px;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.feedback-card--success {
+  background: rgba(16, 185, 129, 0.12);
+  border: 1.5px solid #10b981;
+  color: #d1fae5;
+}
+
+.feedback-card--encouraging {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1.5px solid #f59e0b;
+  color: #fef3c7;
+}
+
+.feedback-card--try_again {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1.5px solid #ef4444;
+  color: #fee2e2;
+}
+
+.feedback-score-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.feedback-badge {
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.feedback-msg {
+  margin: 0;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+/* ── Clinical Evidence View ──────────────────────────────────────────────── */
+.clinical-evidence-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.evidence-hero {
+  background: #121824;
+  border: 1px solid #1f293d;
+  border-radius: 16px;
+  padding: 1.3rem;
+  text-align: center;
+}
+
+.evidence-hero h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.evidence-hero p {
+  margin: 0 auto;
+  font-size: 0.88rem;
+  color: #94a3b8;
+  max-width: 650px;
+  line-height: 1.45;
+}
+
+.section-title {
+  margin: 0 0 0.85rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.studies-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 1rem;
+}
+
+@media (max-width: 500px) {
+  .studies-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.study-card {
+  background: #121824;
+  border: 1px solid #1e283d;
+  border-radius: 14px;
+  padding: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.study-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.study-tag {
+  font-size: 0.72rem;
+  background: rgba(13, 148, 136, 0.15);
+  color: #2dd4bf;
+  border: 1px solid rgba(45, 212, 191, 0.3);
+  border-radius: 14px;
+  padding: 0.2rem 0.55rem;
+  font-weight: 600;
+}
+
+.study-rate {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #34d399;
+}
+
+.study-card__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #f1f5f9;
+  line-height: 1.35;
+}
+
+.study-meta {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.study-meta strong {
+  color: #cbd5e1;
+}
+
+.study-result-box {
+  background: #0d121c;
+  border-left: 3px solid #14b8a6;
+  padding: 0.65rem 0.8rem;
+  border-radius: 0 8px 8px 0;
+  font-size: 0.83rem;
+  color: #cbd5e1;
+  line-height: 1.4;
+}
+
+.doctor-quote {
+  margin: 0;
+  font-style: italic;
+  font-size: 0.82rem;
+  color: #e2e8f0;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 0.75rem;
+  border-radius: 8px;
+}
+
+.doctor-quote footer {
+  margin-top: 0.4rem;
+  font-style: normal;
+  font-size: 0.76rem;
+  color: #94a3b8;
+}
+
+/* Patient Case Studies Grid */
+.cases-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  gap: 1rem;
+}
+
+.case-card {
+  background: #121824;
+  border: 1px solid #1e283d;
+  border-radius: 14px;
+  padding: 1.15rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.case-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.case-name {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.case-condition {
+  font-size: 0.76rem;
+  color: #94a3b8;
+}
+
+.case-improvement {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #34d399;
+  background: rgba(52, 211, 153, 0.12);
+  padding: 0.2rem 0.55rem;
+  border-radius: 14px;
+}
+
+.case-comparison {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+@media (max-width: 480px) {
+  .case-comparison {
+    grid-template-columns: 1fr;
+  }
+}
+
+.comparison-col {
+  padding: 0.75rem;
+  border-radius: 10px;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
+.comparison-col p {
+  margin: 0.3rem 0 0;
+}
+
+.comparison-col.before {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+}
+
+.comparison-col.after {
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+}
+
+.comp-label {
+  font-weight: 700;
+  font-size: 0.75rem;
+  display: block;
+}
+
+.case-footer {
+  font-size: 0.78rem;
+  color: #94a3b8;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  border-top: 1px solid #1a2233;
+  padding-top: 0.5rem;
+}
+
+/* ── Daily Plan View & Certificate ───────────────────────────────────────── */
+.daily-plan-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.daily-hero {
+  background: #121824;
+  border: 1px solid #1f293d;
+  border-radius: 16px;
+  padding: 1.3rem;
+  text-align: center;
+}
+
+.daily-hero h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.daily-hero p {
+  margin: 0 auto 0.75rem;
+  font-size: 0.86rem;
+  color: #94a3b8;
+  max-width: 600px;
+}
+
+.streak-badge-big {
+  display: inline-block;
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  color: #fbbf24;
+  padding: 0.4rem 1rem;
+  border-radius: 20px;
+  font-size: 0.9rem;
+}
+
+.task-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.task-row {
+  background: #121824;
+  border: 1px solid #1e283d;
+  border-radius: 12px;
+  padding: 1rem 1.15rem;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.task-row:hover {
+  border-color: #0d9488;
+  background: #151d2c;
+}
+
+.task-row.task-done {
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.06);
+}
+
+.task-checkbox {
+  width: 20px;
+  height: 20px;
+  accent-color: #10b981;
+  cursor: pointer;
+}
+
+.task-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.task-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.task-time {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  background: #0d121c;
+  padding: 0.1rem 0.45rem;
+  border-radius: 6px;
+}
+
+.task-name {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+
+.task-desc {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #94a3b8;
+}
+
+.task-status {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #cbd5e1;
+}
+
+.plan-actions {
+  display: flex;
+  justify-content: center;
+  padding-top: 0.5rem;
+}
+
+.cert-btn {
+  padding: 0.75rem 1.5rem;
+  background: linear-gradient(135deg, #f59e0b, #d97706);
+  border: none;
+  border-radius: 12px;
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.35);
+  transition: transform 0.15s, opacity 0.15s;
+}
+
+.cert-btn:hover {
+  transform: translateY(-2px);
+  opacity: 0.95;
+}
+
+/* ── Certificate Modal ───────────────────────────────────────────────────── */
+.certificate-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.85);
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.certificate-card {
+  background: #ffffff;
+  color: #1e293b;
+  border-radius: 18px;
+  max-width: 680px;
+  width: 100%;
+  padding: 1.5rem;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.certificate-border {
+  border: 4px double #d97706;
+  border-radius: 12px;
+  padding: 1.5rem;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.cert-emblem {
+  font-size: 3rem;
+}
+
+.cert-header h2 {
+  margin: 0.35rem 0 0;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #92400e;
+}
+
+.cert-sub {
+  margin: 0.2rem 0 0;
+  font-size: 0.82rem;
+  color: #78350f;
+}
+
+.cert-body {
+  font-size: 0.92rem;
+  color: #334155;
+  line-height: 1.5;
+}
+
+.cert-holder {
+  margin: 0.4rem 0;
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: #0f766e;
+  text-decoration: underline;
+}
+
+.cert-metrics {
+  display: flex;
+  justify-content: space-around;
+  margin-top: 1rem;
+  background: #f8fafc;
+  padding: 0.75rem;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+}
+
+.metric .num {
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #0d9488;
+}
+
+.metric .lbl {
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
+.cert-footer {
+  display: flex;
+  justify-content: space-between;
+  padding-top: 1rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.cert-sign {
+  font-family: cursive, serif;
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: #1e293b;
+}
+
+.cert-sign-title {
+  font-size: 0.72rem;
+  color: #64748b;
+}
+
+.cert-close-btn {
+  align-self: center;
+  padding: 0.5rem 1.2rem;
+  background: #334155;
+  border: none;
+  border-radius: 8px;
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.cert-close-btn:hover {
+  background: #1e293b;
+}

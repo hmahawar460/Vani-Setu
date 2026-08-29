@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+spello>=1.0.0
+transformers
+torch
+sentencepiece
+pydantic

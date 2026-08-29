@@ -2,7 +2,7 @@ import { parseJsonResponse, getApiUrl } from './apiUtils';
 import { getCorrectionPayload } from './corrections';
 import { getPronunciationPayload } from './pronunciation';
 
-export async function correctHindi(text: string, scenarioContext: string = ''): Promise<string> {
+export async function correctHindi(text: string, scenarioContext: string = '', patientType: 'stammerer' | 'dyslexia' = 'stammerer'): Promise<string> {
   if (!text.trim()) return text;
 
   const response = await fetch(getApiUrl('/api/correct'), {
@@ -13,6 +13,7 @@ export async function correctHindi(text: string, scenarioContext: string = ''): 
       corrections: getCorrectionPayload(),
       pronunciation: getPronunciationPayload(),
       scenarioContext,
+      patientType,
     }),
   });
 

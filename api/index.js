@@ -1,4 +1,13 @@
-﻿import app from '../server/index.js';
+﻿/**
+ * LEGACY — Vercel Serverless Function wrapper.
+ *
+ * ⚠️  This file is kept for reference only.
+ * The active deployment is now Railway.app / Render.com (see railway.toml / render.yaml).
+ * Vercel deployment is no longer the primary target; this file is NOT used in production.
+ *
+ * Key: bodyParser must be false so Express can read the raw body stream.
+ * The Promise wrapper ensures Vercel waits for async Express handlers.
+ */
 
 export const config = {
   api: {
@@ -6,14 +15,15 @@ export const config = {
   },
 };
 
-// Vercel serverless handler — wraps Express app
-// Always returns JSON on error so the frontend never gets an HTML response
-export default function handler(req, res) {
-  // Safety net: if app failed to load, return JSON error immediately
-  if (!app || typeof app !== 'function') {
-    res.setHeader('Content-Type', 'application/json');
-    return res.status(500).json({ error: 'Server failed to initialize. Check environment variables in Vercel dashboard.' });
-  }
+import app from '../server/index.js';
 
-  return app(req, res);
+export default function handler(req, res) {
+  return new Promise((resolve) => {
+    const originalEnd = res.end.bind(res);
+    res.end = (...args) => {
+      originalEnd(...args);
+      resolve();
+    };
+    app(req, res);
+  });
 }

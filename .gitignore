@@ -6,3 +6,4 @@ dist
 corrections.json
 
 .vercel
+benchmark_results/

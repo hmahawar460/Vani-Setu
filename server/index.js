@@ -5,14 +5,13 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { normalizeCorrections } from './db.js';
 import {
-  applyCorrections,
-  getWordCorrectionsForLLM,
-  getParaExamplesForLLM,
-  normalizeCorrections,
-} from './db.js';
-import { applyPhoneticRules } from './hindiPhonetic.js';
-import { transliterateHinglish, getHinglishHintsForLLM } from './hinglishTranslit.js';
+  getStats as getAdaptiveStats,
+  importState as importAdaptiveState,
+  exportState as exportAdaptiveState,
+  recordPipelineResult,
+} from './adaptiveLearner.js';
 import {
   getTestQuestionById,
   getTestQuestions,
@@ -27,44 +26,52 @@ import {
   getParagraphTests,
   getParagraphTestById,
 } from './testDataset.js';
-import { applyPronunciationProfile, getPronunciationHintsForLLM, normalizePronunciationProfile } from './pronunciationMatch.js';
 import { alignWithContext, scoreWordAlignment } from './wordAlign.js';
 import { cacheGet, cacheSet } from './cache.js';
 import { rateLimit } from './rateLimit.js';
+import { isSidecarAvailable } from './nlpClient.js';
+import { normalizePronunciationProfile } from './pronunciationMatch.js';
+import { runCorrectionPipeline, detectLanguage } from './pipeline.js';
+import { transliterateHinglish } from './hinglishTranslit.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 
-const PORT         = process.env.PORT || 3001;
-const GROQ_API_KEY = process.env.GROQ_API_KEY;
-const USE_LOCAL    = process.env.USE_LOCAL_MODEL === 'true';
-const OLLAMA_URL   = process.env.OLLAMA_URL || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.1:8b';
+const PORT               = process.env.PORT || 3001;
+const GROQ_API_KEY       = process.env.GROQ_API_KEY;
+const CEREBRAS_API_KEY   = process.env.CEREBRAS_API_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 
 // In-flight deduplication: if same text is being corrected concurrently,
 // share one LLM call instead of making N identical calls
 const inFlight = new Map();
 
 app.use(cors());
-app.use(express.json({ limit: '1mb' }));
+// Accept body whether it arrives as a raw stream or a pre-buffered object (Vercel serverless)
+app.use((req, res, next) => {
+  if (req.body !== undefined) return next(); // already parsed
+  express.json({ limit: '1mb' })(req, res, next);
+});
 
-// Groq fetch with retry on 429 rate limit and 15s per-call timeout
-async function groqFetch(url, options, maxRetries = 3) {
+// ─────────────────────────────────────────────────────────────────────────────
+// Groq fetch helper — used by /api/transcribe (audio upload to Whisper API)
+// ─────────────────────────────────────────────────────────────────────────────
+const VERCEL_SAFE_TIMEOUT_MS = 8000;
+
+async function groqFetch(url, options, maxRetries = 2) {
   let lastError;
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     if (attempt > 0) {
-      await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt - 1)));
+      await new Promise(r => setTimeout(r, 500));
     }
     try {
-      // 25s timeout per individual Groq call — prevents hanging on slow responses
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 25000);
+      const timer = setTimeout(() => controller.abort(), VERCEL_SAFE_TIMEOUT_MS);
       const r = await fetch(url, { ...options, signal: controller.signal });
       clearTimeout(timer);
       if (r.status === 429) {
-        const retryAfter = parseInt(r.headers.get('retry-after') || '2', 10);
-        await new Promise(res => setTimeout(res, retryAfter * 1000));
+        await new Promise(res => setTimeout(res, 1000));
         lastError = new Error('Rate limited');
         continue;
       }
@@ -72,7 +79,7 @@ async function groqFetch(url, options, maxRetries = 3) {
     } catch (err) {
       lastError = err;
       if (err.name === 'AbortError') {
-        console.warn(`[groq] call timed out (attempt ${attempt + 1})`);
+        console.warn(`[groq] call timed out after ${VERCEL_SAFE_TIMEOUT_MS}ms (attempt ${attempt + 1})`);
       }
     }
   }
@@ -80,73 +87,33 @@ async function groqFetch(url, options, maxRetries = 3) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Ollama local model support
-// ─────────────────────────────────────────────────────────────────────────────
-async function ollamaChat(systemPrompt, userMessage, maxTokens = 512) {
-  const r = await fetch(`${OLLAMA_URL}/api/chat`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model: OLLAMA_MODEL,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-      ],
-      stream: false,
-      options: { temperature: 0, num_predict: maxTokens },
-    }),
-  });
-  if (!r.ok) throw new Error(`Ollama error: ${await r.text()}`);
-  const d = await r.json();
-  return d.message?.content?.trim() ?? '';
-}
-
-/** Unified LLM call — routes to Ollama if USE_LOCAL_MODEL=true, else Groq */
-async function llmChat(systemPrompt, userMessage, maxTokens = 512) {
-  if (USE_LOCAL) {
-    console.log(`[llm] using local Ollama (${OLLAMA_MODEL})`);
-    return ollamaChat(systemPrompt, userMessage, maxTokens);
-  }
-
-  const r = await groqFetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'llama-3.3-70b-versatile',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: userMessage },
-      ],
-      temperature: 0,
-      max_tokens: maxTokens,
-    }),
-  });
-
-  if (!r.ok) {
-    const detail = await r.text();
-    throw new Error(`Groq error: ${detail}`);
-  }
-
-  const d = await r.json();
-  return d.choices?.[0]?.message?.content?.trim() ?? '';
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // Health check
 // ─────────────────────────────────────────────────────────────────────────────
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, groqConfigured: Boolean(GROQ_API_KEY) });
+app.get('/api/health', async (_req, res) => {
+  const sidecarAvailable = await isSidecarAvailable();
+  const groqConfigured = Boolean(process.env.GROQ_API_KEY || GROQ_API_KEY);
+  const cerebrasConfigured = Boolean(process.env.CEREBRAS_API_KEY || CEREBRAS_API_KEY);
+  const openrouterConfigured = Boolean(process.env.OPENROUTER_API_KEY || OPENROUTER_API_KEY);
+  const localConfigured = process.env.USE_LOCAL_MODEL === 'true';
+
+  res.json({
+    ok: true,
+    groqConfigured,
+    cerebrasConfigured,
+    openrouterConfigured,
+    localConfigured,
+    activeProvider: process.env.LLM_PROVIDER || 'auto',
+    sidecarAvailable,
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Transcribe audio → Hindi text
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/api/transcribe', rateLimit(20), upload.single('audio'), async (req, res) => {
-  if (!GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY सेट नहीं है।' });
-  if (!req.file)    return res.status(400).json({ error: 'कोई ऑडियो फ़ाइल नहीं मिली।' });
+  const apiKey = process.env.GROQ_API_KEY || GROQ_API_KEY;
+  if (!apiKey) return res.status(500).json({ error: 'GROQ_API_KEY सेट नहीं है (Whisper ट्रांसक्रिप्शन के लिए आवश्यक)।' });
+  if (!req.file) return res.status(400).json({ error: 'कोई ऑडियो फ़ाइल नहीं मिली।' });
 
   try {
     const fd = new FormData();
@@ -158,24 +125,36 @@ app.post('/api/transcribe', rateLimit(20), upload.single('audio'), async (req, r
     fd.append('model', 'whisper-large-v3');
     fd.append('response_format', 'json');
     fd.append('language', 'hi');
-    // Whisper prompt: bias decoder toward real Hindi vocabulary.
-    // Includes commonly mis-transcribed words to anchor Whisper's output.
-    fd.append('prompt',
-      'स्कूल बारिश क्योंकि कपड़े गीले बाथरूम दवाई भूख पानी दर्द थका ठंड गर्मी ' +
-      'खुश डर सिर पेट रोटी चावल पापा। मैं स्कूल नहीं जा पाया। मुझे पानी चाहिए।'
-    );
+
+    const isContext = req.body?.isContext === 'true';
+    // For patient input (Bole button), bias decoder toward real Hindi vocabulary.
+    // For caregiver context mic, use conversational Hindi prompt to prevent silence/dot hallucination.
+    if (isContext) {
+      fd.append('prompt', 'नमस्ते, क्या बात है? क्या आप खाना खाएंगे या पानी पिएंगे? आप कहाँ जा रहे हैं?');
+    } else {
+      fd.append('prompt',
+        'स्कूल बारिश क्योंकि कपड़े गीले बाथरूम दवाई भूख पानी दर्द थका ठंड गर्मी ' +
+        'खुश डर सिर पेट रोटी चावल पापा। मैं स्कूल नहीं जा पाया। मुझे पानी चाहिए।'
+      );
+    }
     fd.append('temperature', '0');
 
     const r = await groqFetch('https://api.groq.com/openai/v1/audio/transcriptions', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${GROQ_API_KEY}` },
+      headers: { Authorization: `Bearer ${apiKey}` },
       body: fd,
     });
 
     if (!r.ok) return res.status(r.status).json({ error: await r.text() });
     const d = await r.json();
-    const transcribed = d.text ?? '';
-    console.log(`[transcribe] "${transcribed}"`);
+    let transcribed = (d.text ?? '').trim();
+
+    // If Whisper returns only a dot, comma, or punctuation symbol, clean it to empty
+    if (/^[.,!?;:।\s\-_]+$/.test(transcribed)) {
+      transcribed = '';
+    }
+
+    console.log(`[transcribe] (isContext=${isContext}) "${transcribed}"`);
     res.json({ text: transcribed });
   } catch (err) {
     console.error('[transcribe]', err);
@@ -184,294 +163,35 @@ app.post('/api/transcribe', rateLimit(20), upload.single('audio'), async (req, r
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Word-count constraint helper
-// If model is confident (input ≤ 3 words) it may extend to 4 words max.
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Extract topic from stranger's question so LLM knows the answer domain.
- * This is critical — prevents LLM from guessing food/water when asked about movies.
- */
-function getTopicFromScenario(question) {
-  if (!question) return 'general conversation';
-  const q = question.toLowerCase();
-  if (/मुवी|मूवी|movie|film|फिल्म|सिनेमा|cinema|web series|वेब सीरीज|देखी|देखा|देखे/.test(q))
-    return 'movies/films — user is naming or describing a movie they watched. Garbled words like "जोई","जॉय","डोई","जोय" etc. are likely MOVIE NAMES — keep them as-is or transliterate to Hindi, do NOT replace with food/water words';
-  if (/खाना|खाने|food|restaurant|कपड़|cloth|shirt|dress|दुकान/.test(q))
-    return 'shopping/food';
-  if (/स्कूल|school|college|पढ़|class/.test(q))
-    return 'education/school';
-  if (/दर्द|pain|बीमार|sick|doctor|hospital/.test(q))
-    return 'health';
-  if (/खेल|play|game|sport/.test(q))
-    return 'sports/games';
-  return `topic of: "${question}"`;
-}
-function countWords(text) {
-  return text.trim().split(/\s+/).filter(Boolean).length;
-}
-
-function enforceWordLimit(input, output) {
-  const inputWords  = countWords(input);
-  if (inputWords === 0) return output;
-
-  const outputWords = countWords(output);
-
-  // Rule: output ≤ max(inputWords × 1.2, inputWords + 4) words
-  // For very short input (1-2 words): max 4 words output
-  // For full para (100 words): max 120 words output
-  const maxWords = Math.max(Math.ceil(inputWords * 1.2), inputWords + 4);
-
-  if (outputWords <= maxWords) return output;
-
-  // Trim to maxWords
-  const words = output.trim().split(/\s+/);
-  const trimmed = words.slice(0, maxWords).join(' ');
-  console.log(`[word-limit] trimmed ${outputWords}→${maxWords} words`);
-  return trimmed;
-}
-async function runLLMCorrection(rawText, preProcessed, corrections = [], pronunciation = [], expectedContext = null, scenarioContext = null) {
-  const userCorrections = normalizeCorrections(corrections);
-  const wordLookup   = getWordCorrectionsForLLM(userCorrections);
-  const paraExamples = getParaExamplesForLLM(userCorrections);
-  const pronHints    = getPronunciationHintsForLLM(pronunciation);
-  const hinglishHints = getHinglishHintsForLLM(30);
-
-  // Calculate allowed word count range for the output
-  const inputWordCount = countWords(rawText);
-  const maxOutputWords = Math.max(Math.ceil(inputWordCount * 1.2), inputWordCount + 4);
-
-  // ── Build prompt with EQUAL-PRIORITY sections ─────────────────────────
-  // Each section is wrapped in XML-style tags so the LLM gives equal
-  // attention to ALL workflow steps, not just the first/last.
-
-  // Compact prompt — all features, minimal tokens
-  const scenarioLine = scenarioContext 
-    ? `\n🔴 संदर्भ: "${scenarioContext}" → विषय: ${getTopicFromScenario(scenarioContext)}\nइस विषय से संबंधित शब्द ही सुझाओ।`
-    : '';
-  const userCorrLine = wordLookup ? `\nज्ञात सुधार: ${wordLookup}` : '';
-  const pronLine = pronHints ? `\nउच्चारण: ${pronHints}` : '';
-  const exampleLine = paraExamples.length > 0 
-    ? '\n' + paraExamples.slice(0,2).map(e => `"${e.raw}"→"${e.corrected}"`).join(', ')
-    : '';
-
-  const prompt = `AAC सहायक। वाक् विकलांग व्यक्ति की अस्पष्ट बोली को सुधारो।${scenarioLine}${userCorrLine}${pronLine}
-
-Whisper गलतियाँ: तूल=स्कूल, बालिच=बारिश, इतली/तूकी=इसलिए, दई=गई, तपले=कपड़े, दीले=गीले, मेला=मेरा, था-लिया=खा-लिया, बला=भरा, पिलात्ता=इसलिए, डाला=गया
-
-Hinglish: ${hinglishHints.slice(0, 200)}
-
-शब्द सीमा: इनपुट ${inputWordCount} शब्द → आउटपुट अधिकतम ${maxOutputWords} शब्द।${exampleLine}
-
-नियम: केवल हिंदी देवनागरी। कोई व्याख्या नहीं। मूल भावना न बदलो।
-चरण: 1)ज्ञात सुधार लागू करो 2)Whisper गलतियाँ ठीक करो 3)Hinglish→देवनागरी 4)संदर्भ से अर्थ तय करो 5)पड़ोसी शब्दों से सुधारो 6)व्याकरण ठीक करो`;
-
-  const userMessage = rawText === preProcessed
-    ? rawText
-    : `मूल: "${rawText}"\nआंशिक: "${preProcessed}"\n\nसुधारो।`;
-
-  const result = await llmChat(prompt, userMessage, 512);
-  const limited = enforceWordLimit(rawText, result || preProcessed);
-  console.log(`[correct] LLM result: "${limited}"`);
-  return limited;
-}
-
-/** Final pass: verify paragraph makes sense; fix words using prev/next context */
-async function runParagraphSenseCheck(rawText, currentText, corrections = [], pronunciation = [], expectedContext = null, scenarioContext = null) {
-  const pronHints = getPronunciationHintsForLLM(pronunciation);
-
-  const systemPrompt =
-`तुम AAC सहायक हो। दिया गया हिंदी वाक्य/पैराग्राफ पढ़ो और जाँचो कि क्या यह समझ में आता है।
-
-⚠️ सभी नियम समान प्राथमिकता के हैं:
-
-<RULES>
-1. हर शब्द को उसके पिछले और अगले शब्दों के साथ जोड़कर देखो — शब्द आपस में जुड़े होने चाहिए।
-2. अगर कोई शब्द अर्थहीन है, उसे संदर्भ के अनुसार सही शब्द से बदलो।
-3. हकलाने/दोहराव को हटाओ: "मु-मुझे" → "मुझे"
-4. Hinglish/Roman शब्द बचे हों तो उन्हें देवनागरी में बदलो।
-5. अधूरा वाक्य हो तो संदर्भ से पूरा करो।
-6. मूल भावना न बदलो। केवल देवनागरी में उत्तर दो — कोई व्याख्या नहीं।
-</RULES>
-
-<WHISPER_ERRORS>
-ज्ञात गलतियाँ: "तूल"=स्कूल, "बालिच"=बारिश, "तूकी"=क्योंकि, "दई"=गई, "तपले"=कपड़े, "दीले"=गीले, "तोशू"=खुश
-</WHISPER_ERRORS>${pronHints ? `\n\n<PRONUNCIATION>\nउच्चारण प्रोफ़ाइल: ${pronHints}\n</PRONUNCIATION>` : ''}${expectedContext ? `\n\n<EXPECTED>\nलक्ष्य संदर्भ: "${expectedContext}"\n</EXPECTED>` : ''}${scenarioContext ? `\n\n<SCENARIO>\nकेयरगिवर का संदर्भ: "${scenarioContext}"\n</SCENARIO>` : ''}`;
-
-  const userMessage =
-`मूल Whisper: "${rawText}"
-वर्तमान सुधार: "${currentText}"
-
-पूरे पैराग्राफ की समझ जाँचो। गलत/असंबद्ध शब्द सही करो। पिछले-अगले शब्दों से जोड़कर पूरा सार्थक वाक्य दो।`;
-
-  try {
-    const result = await llmChat(systemPrompt, userMessage, 512);
-    if (!result) return currentText;
-    console.log(`[sense-check] "${result}"`);
-    return result;
-  } catch {
-    return currentText;
-  }
-}
-
-/**
- * Final confirmation step — verifies the corrected answer is relevant
- * to the stranger's question. Uses fast/cheap model. Runs after sense-check.
- */
-async function runContextConfirmation(rawText, currentText, scenarioContext, expectedContext) {
-  const inputWordCount = countWords(rawText);
-  const maxWords = Math.max(Math.ceil(inputWordCount * 1.2), inputWordCount + 4);
-
-  let contextLine = '';
-  if (scenarioContext) contextLine += `प्रश्न: "${scenarioContext}"\n`;
-  if (expectedContext) contextLine += `अपेक्षित संदर्भ: "${expectedContext}"\n`;
-
-  const systemPrompt =
-`तुम AAC सहायक हो। नीचे एक वाक् विकलांग व्यक्ति का सुधरा हुआ उत्तर है।
-${contextLine}
-<RULES>
-सभी नियम समान प्राथमिकता:
-1. अगर उत्तर सही है → बिल्कुल वैसा ही लिखो, कोई बदलाव नहीं।
-2. अगर उत्तर सवाल से असंबंधित है → केवल ज़रूरी शब्द बदलो।
-3. अधिकतम ${maxWords} शब्द।
-4. केवल हिंदी देवनागरी। कोई व्याख्या नहीं। सिर्फ उत्तर लिखो।
-</RULES>`;
-
-  try {
-    const result = await llmChat(systemPrompt, currentText, 200);
-
-    // Safety: meta-commentary detection
-    const isMetaResponse = /^(हाँ|नहीं)[,،]?\s*(यह|यह उत्तर|उत्तर)/i.test(result);
-    if (!result || isMetaResponse) {
-      console.log(`[confirm] discarded meta-response, keeping: "${currentText}"`);
-      return currentText;
-    }
-
-    // Safety: over-simplification detection
-    const currentWordCount = countWords(currentText);
-    const resultWordCount  = countWords(result);
-    if (currentWordCount > 4 && resultWordCount < currentWordCount * 0.7) {
-      console.log(`[confirm] result too short (${resultWordCount} vs ${currentWordCount}), keeping original`);
-      return currentText;
-    }
-
-    console.log(`[confirm] "${result}"`);
-    return result;
-  } catch {
-    return currentText;
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Macro Pre/Post Processing
-// ─────────────────────────────────────────────────────────────────────────────
-
-/** Pre-LLM macro: apply ALL local corrections in deterministic order */
-function macroPreProcess(rawText, userCorrections, pronProfile) {
-  // 1. Hinglish transliteration
-  let text = transliterateHinglish(rawText);
-  if (text !== rawText) {
-    console.log(`[macro-pre] Hinglish→Devanagari: "${rawText}" → "${text}"`);
-  }
-
-  // 2. Remove stammerer repetitions: "मु-मुझे" → "मुझे", "पा-पानी" → "पानी"
-  text = text.replace(/([\u0900-\u097F]{1,3})-\1/g, '$1');
-  // Remove prolonged vowels: "पाआनी" → "पानी" (repeated vowel marks)
-  text = text.replace(/([\u093E-\u094C])\1+/g, '$1');
-
-  // 3. DB word/phrase corrections
-  text = applyCorrections(text, userCorrections);
-
-  // 4. Pronunciation profile
-  text = applyPronunciationProfile(text, pronProfile);
-
-  // 5. Phonetic rules
-  text = applyPhoneticRules(text);
-
-  return text;
-}
-
-/** Post-LLM macro: re-apply critical corrections to catch LLM regression */
-function macroPostProcess(llmOutput, userCorrections, pronProfile) {
-  let text = llmOutput;
-
-  // Re-apply phonetic rules (LLM sometimes re-introduces errors)
-  text = applyPhoneticRules(text);
-
-  // Re-apply stammerer pattern cleanup
-  text = text.replace(/([\u0900-\u097F]{1,3})-\1/g, '$1');
-  text = text.replace(/([\u093E-\u094C])\1+/g, '$1');
-
-  return text;
-}
-
-/** Calculate word-level overlap between two texts (0-100) */
-function wordOverlap(a, b) {
-  const wordsA = a.trim().split(/\s+/).filter(Boolean);
-  const wordsB = b.trim().split(/\s+/).filter(Boolean);
-  if (!wordsA.length || !wordsB.length) return 0;
-  const setB = new Set(wordsB.map(w => w.toLowerCase()));
-  let matched = 0;
-  for (const w of wordsA) {
-    if (setB.has(w.toLowerCase())) matched++;
-  }
-  return Math.round((matched / Math.max(wordsA.length, wordsB.length)) * 100);
-}
-
-async function runCorrectionPipeline(rawText, corrections, pronunciation, expectedContext = null, scenarioContext = null) {
-  const userCorrections = normalizeCorrections(corrections);
-  const pronProfile = normalizePronunciationProfile(pronunciation);
-
-  // ── Pre-LLM Macro Pass ─────────────────────────────────────────────────
-  const preProcessed = macroPreProcess(rawText, userCorrections, pronProfile);
-
-  let aligned = preProcessed;
-  if (expectedContext) {
-    aligned = alignWithContext(preProcessed, expectedContext, userCorrections, pronProfile);
-  }
-
-  // ── Step 1: LLM correction (word-count constrained) ────────────────────
-  let final = aligned;
-  try {
-    final = await runLLMCorrection(rawText, aligned, userCorrections, pronProfile, expectedContext, scenarioContext);
-  } catch (llmErr) {
-    console.error('[correct] LLM failed:', llmErr.message);
-  }
-
-  // ── Post-LLM Macro Pass ────────────────────────────────────────────────
-  final = macroPostProcess(final, userCorrections, pronProfile);
-
-  if (expectedContext) {
-    final = alignWithContext(final, expectedContext, userCorrections, pronProfile);
-  }
-
-  return final;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/correct — full pipeline
 //
 //  0. Hinglish transliteration    (instant, local)
 //  1. DB word/phrase substitution  (instant, local)
 //  2. Safe phonetic rules          (instant, local)
-//  3. LLM context-aware correction (Groq, paragraph-aware, DB-informed)
+//  3. Multi-Model LLM context-aware correction (Cerebras / Groq / OpenRouter / Ollama)
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/api/correct', rateLimit(30), async (req, res) => {
-  if (!GROQ_API_KEY && !USE_LOCAL) return res.status(500).json({ error: 'GROQ_API_KEY सेट नहीं है।' });
+  const hasLlm = Boolean(
+    process.env.CEREBRAS_API_KEY ||
+    process.env.GROQ_API_KEY ||
+    process.env.OPENROUTER_API_KEY ||
+    process.env.USE_LOCAL_MODEL === 'true'
+  );
+  if (!hasLlm) return res.status(500).json({ error: 'कोई भी LLM Provider (Cerebras, Groq, OpenRouter, या Ollama) कॉन्फ़िगर नहीं है।' });
 
-  const { text, corrections, pronunciation, scenarioContext } = req.body ?? {};
-  if (!text?.trim()) return res.json({ text: text ?? '' });
+  const { text, corrections, pronunciation, scenarioContext, patientType = 'stammerer' } = req.body ?? {};
+  if (!text?.trim() || /^[.,!?;:।\s\-_]+$/.test(text.trim())) return res.json({ text: '' });
 
-  // Cache key: text only (corrections are user-specific so we skip caching those)
+  // Cache key: text + patientType (corrections are user-specific so we skip caching those)
   const hasUserCorrections = Array.isArray(corrections) && corrections.length > 0;
   const hasPronunciation   = Array.isArray(pronunciation) && pronunciation.length > 0;
-  const cacheKey = !hasUserCorrections && !hasPronunciation && !scenarioContext ? text.trim() : null;
+  const cacheKey = !hasUserCorrections && !hasPronunciation && !scenarioContext ? `${patientType}:${text.trim()}` : null;
 
   // 1. Cache hit — return instantly, no LLM call
   if (cacheKey) {
     const cached = cacheGet(cacheKey);
     if (cached) {
-      console.log(`[correct] cache hit: "${text.trim().slice(0, 40)}"`);
+      console.log(`[correct] cache hit (${patientType}): "${text.trim().slice(0, 40)}"`);
       return res.json({ text: cached });
     }
   }
@@ -487,7 +207,7 @@ app.post('/api/correct', rateLimit(30), async (req, res) => {
   }
 
   // 3. Run pipeline — wrap in promise for deduplication
-  const pipelinePromise = runCorrectionPipeline(text, corrections, pronunciation, null, scenarioContext)
+  const pipelinePromise = runCorrectionPipeline(text, corrections, pronunciation, null, scenarioContext, patientType)
     .finally(() => { if (cacheKey) inFlight.delete(cacheKey); });
 
   if (cacheKey) inFlight.set(cacheKey, pipelinePromise);
@@ -559,7 +279,7 @@ app.get('/api/test/questions', (req, res) => {
 // Body: { heard, expected, questionId, mode, englishAlt, corrections }
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/api/test/evaluate', async (req, res) => {
-  if (!GROQ_API_KEY) return res.status(500).json({ error: 'GROQ_API_KEY is not set.' });
+  if (!GROQ_API_KEY && process.env.USE_LOCAL_MODEL !== 'true') return res.status(500).json({ error: 'GROQ_API_KEY is not set.' });
 
   const { expected, heard, questionId, mode = 'paragraph', englishAlt, corrections, pronunciation } = req.body ?? {};
 
@@ -645,7 +365,7 @@ app.post('/api/test/evaluate', async (req, res) => {
 // Body: { text } — runs the correction pipeline and returns the result
 // ─────────────────────────────────────────────────────────────────────────────
 app.post('/api/test/model', async (req, res) => {
-  if (!GROQ_API_KEY && !USE_LOCAL) return res.status(500).json({ error: 'GROQ_API_KEY is not set.' });
+  if (!GROQ_API_KEY && process.env.USE_LOCAL_MODEL !== 'true') return res.status(500).json({ error: 'GROQ_API_KEY is not set.' });
 
   const { text, expected, corrections, pronunciation } = req.body ?? {};
   if (!text?.trim()) return res.status(400).json({ error: 'text is required' });
@@ -682,7 +402,7 @@ import {
 } from './testDataset.js';
 
 app.post('/api/test/accuracy', async (req, res) => {
-  if (!GROQ_API_KEY && !USE_LOCAL) return res.status(500).json({ error: 'No model configured.' });
+  if (!GROQ_API_KEY && process.env.USE_LOCAL_MODEL !== 'true') return res.status(500).json({ error: 'No model configured.' });
 
   const datasets = {
     stammerer_hindi: STAMMERER_DATASET.filter(d => d.lang === 'hindi'),
@@ -747,7 +467,9 @@ app.post('/api/test/accuracy', async (req, res) => {
       accuracy: totalTests ? Math.round((totalCorrect / totalTests) * 100) : 0,
     },
     byDataset: results,
-    model: USE_LOCAL ? `ollama:${OLLAMA_MODEL}` : 'groq:llama-3.3-70b-versatile',
+    model: process.env.USE_LOCAL_MODEL === 'true'
+      ? `ollama:${process.env.OLLAMA_MODEL || 'phi4-mini'}`
+      : 'groq:llama-3.3-70b-versatile',
   });
 });
 
@@ -757,6 +479,102 @@ app.get('/api/corrections', (_req, res) => {
 
 app.delete('/api/corrections/:raw', (_req, res) => {
   res.json({ ok: true, localOnly: true });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/adaptive/stats — adaptive learner runtime stats
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/api/adaptive/stats', (_req, res) => {
+  res.json(getAdaptiveStats());
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/adaptive/feedback — explicit user feedback to train the model
+// Body: { raw, pipelineOutput, expected }
+// Called when the user corrects the app's output (teaches from real usage).
+// ─────────────────────────────────────────────────────────────────────────────
+app.post('/api/adaptive/feedback', (req, res) => {
+  const { raw, pipelineOutput, expected } = req.body ?? {};
+  if (!raw?.trim() || !expected?.trim()) {
+    return res.status(400).json({ error: 'raw and expected are required' });
+  }
+  try {
+    recordPipelineResult(raw, pipelineOutput ?? '', expected);
+    res.json({ ok: true, stats: getAdaptiveStats() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/tts — Text-to-Speech API (Hugging Face MMS with Google fallback)
+// ─────────────────────────────────────────────────────────────────────────────
+app.get('/api/tts', async (req, res) => {
+  const text = req.query.text;
+  if (!text?.trim()) {
+    return res.status(400).json({ error: 'Text parameter is required' });
+  }
+
+  // Preprocess: detect language and transliterate Hinglish to Devanagari Hindi
+  const detectedLang = detectLanguage(text);
+  const lang = detectedLang === 'hindi' ? 'hi' : 'en';
+
+  let cleanedText = text;
+  if (lang === 'hi') {
+    cleanedText = transliterateHinglish(text);
+    // Remove stammering hyphens for cleaner speech synthesis
+    cleanedText = cleanedText.replace(/([a-zA-Z\u0900-\u097F]+)-\1/g, '$1');
+  }
+
+  const hfToken = process.env.HF_TOKEN;
+
+  if (hfToken) {
+    const model = lang === 'hi' ? 'facebook/mms-tts-hin' : 'facebook/mms-tts-eng';
+    console.log(`[TTS] Requesting HuggingFace model: ${model} for text: "${cleanedText}"`);
+    try {
+      const response = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${hfToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ inputs: cleanedText }),
+      });
+
+      if (response.ok) {
+        res.setHeader('Content-Type', 'audio/wav');
+        const buffer = await response.arrayBuffer();
+        return res.send(Buffer.from(buffer));
+      }
+      console.warn(`[TTS] HuggingFace returned HTTP ${response.status}: ${await response.text()}. Falling back to Google TTS...`);
+    } catch (err) {
+      console.warn('[TTS] HuggingFace failed:', err.message, '. Falling back to Google TTS...');
+    }
+  }
+
+  // Fallback: Free Google Translate TTS public stream (MIT licensed client equivalent)
+  try {
+    const googleLang = lang === 'hi' ? 'hi' : 'en';
+    const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(cleanedText)}&tl=${googleLang}&client=tw-ob`;
+    
+    console.log(`[TTS] Fetching from Google TTS: "${cleanedText}" (${googleLang})`);
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Google TTS returned HTTP ${response.status}`);
+    }
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    const buffer = await response.arrayBuffer();
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    console.error('[TTS] Error generating speech:', err.message);
+    res.status(500).json({ error: 'Failed to generate voice speech output' });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -772,10 +590,12 @@ if (!process.env.VERCEL && fs.existsSync(distPath)) {
 if (!process.env.VERCEL) {
 app.listen(PORT, () => {
   console.log(`✅  Server on http://localhost:${PORT}`);
-  const modelName = USE_LOCAL ? `Ollama (${OLLAMA_MODEL})` : 'Groq llama-3.3-70b-versatile';
+  const useLocal = process.env.USE_LOCAL_MODEL === 'true';
+  const ollamaModel = process.env.OLLAMA_MODEL || 'phi4-mini';
+  const modelName = useLocal ? `Ollama (${ollamaModel})` : 'Groq llama-3.3-70b-versatile';
   console.log(`    Model: ${modelName} | Pipeline: Macro→Hinglish→DB→Phonetic→LLM→PostMacro`);
-  if (!GROQ_API_KEY && !USE_LOCAL) console.warn('⚠️  No model configured — set GROQ_API_KEY or USE_LOCAL_MODEL=true');
-  if (USE_LOCAL) console.log(`    Ollama URL: ${OLLAMA_URL}`);
+  if (!GROQ_API_KEY && !useLocal) console.warn('⚠️  No model configured — set GROQ_API_KEY or USE_LOCAL_MODEL=true');
+  if (useLocal) console.log(`    Ollama URL: ${process.env.OLLAMA_URL || 'http://localhost:11434'}`);
 });
 }
 

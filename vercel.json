@@ -1,9 +1,10 @@
 {
+  "_comment": "LEGACY — kept for reference only. Active deployment is Railway.app / Render.com (see railway.toml / render.yaml). This file is NOT used in production.",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "functions": {
     "api/index.js": {
-      "maxDuration": 60,
+      "maxDuration": 10,
       "memory": 512
     }
   },

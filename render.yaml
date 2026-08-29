@@ -1,0 +1,48 @@
+# render.yaml — WisperFlow deployment config for Render.com
+#
+# Two services:
+#   wisper-flow    : Node.js web service (public)
+#   wisper-flow-ml : Python ML sidecar (private — internal only)
+#
+# Deploy steps:
+#   1. Push this repo to GitHub
+#   2. Go to https://render.com → New → Blueprint
+#   3. Connect the repo — Render reads this file automatically
+#   4. Set GROQ_API_KEY as an environment secret on wisper-flow
+#   5. Render wires ML_SIDECAR_URL internally between services
+#
+# Public URL: https://wisper-flow.onrender.com
+# Note: Free tier sleeps after 15 min inactivity (~30s cold start).
+#       Upgrade to Starter ($7/mo) for always-on.
+
+services:
+  # ── Node.js web service (public) ─────────────────────────────────────────
+  - type: web
+    name: vani-setu
+    runtime: node
+    region: oregon
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: node server/index.js
+    envVars:
+      - key: PORT
+        value: 3001
+      - key: GROQ_API_KEY
+        sync: false          # set manually in Render dashboard as a secret
+      - key: ML_SIDECAR_URL
+        fromService:
+          name: vani-setu-ml
+          type: pserv
+          property: host     # Render injects the internal hostname automatically
+
+  # ── Python ML sidecar (private — internal only) ──────────────────────────
+  - type: pserv             # private service — no public URL
+    name: vani-setu-ml
+    runtime: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r ml_sidecar/requirements.txt
+    startCommand: uvicorn ml_sidecar.main:app --host 0.0.0.0 --port 8000
+    envVars:
+      - key: PORT
+        value: 8000
