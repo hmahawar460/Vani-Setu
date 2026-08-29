@@ -1,0 +1,9 @@
+node_modules
+dist
+.env
+*.local
+
+corrections.json
+
+.vercel
+benchmark_results/
